@@ -1,0 +1,58 @@
+# Exercise Form Correction System Configuration
+
+# Default settings
+default_exercise: squat
+default_difficulty: intermediate
+
+# Display settings
+display:
+  mode: full  # full, minimal, debug
+  show_fps: true
+  show_skeleton: true
+  ui_language: en
+
+# Camera settings
+camera:
+  id: 0
+  resolution: [1280, 720]  # width, height
+  fps: 30
+
+# Pose detection settings
+pose:
+  model_complexity: 1  # 0, 1, or 2
+  min_detection_confidence: 0.7
+  min_tracking_confidence: 0.7
+
+# Filtering settings
+filtering:
+  enabled: true
+  min_cutoff: 0.5
+  beta: 0.01
+
+# Exercise-specific overrides
+exercises:
+  squat:
+    beginner:
+      flexion_threshold: 100
+    intermediate:
+      flexion_threshold: 90
+    advanced:
+      flexion_threshold: 80
+  
+  pushup:
+    beginner:
+      flexion_threshold: 100
+    intermediate:
+      flexion_threshold: 90
+    advanced:
+      flexion_threshold: 80
+  
+  plank:
+    beginner:
+      min_hold_time: 5
+    intermediate:
+      min_hold_time: 10
+      good_hold_time: 30
+    advanced:
+      min_hold_time: 15
+      excellent_hold_time: 90

@@ -1,0 +1,15 @@
+*.mp4
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
