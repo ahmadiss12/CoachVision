@@ -1,0 +1,17 @@
+# Additional packages needed for fine-tuning
+
+# Dataset & ML
+kaggle>=1.5.12
+pandas>=1.4.0
+scikit-learn>=1.0.0
+numpy>=1.22.0
+matplotlib>=3.5.0
+
+# Already have these, but listing for reference:
+# MediaPipe (already installed)
+# OpenCV (already installed)
+# TensorFlow (already installed)
+
+# Optional for advanced training:
+# xgboost>=1.7.0          # For XGBoost classifier
+# lightgbm>=3.3.0         # For LightGBM classifier

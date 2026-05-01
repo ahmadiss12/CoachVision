@@ -1,0 +1,27 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+**/.venv/
+**/venv/
+
+# Node / Expo
+**/node_modules/
+**/.expo/
+**/.next/
+
+# Local secrets/env
+**/.env
+**/.env.local
+
+# Local db or runtime dumps
+**/*.db
+**/output*.txt
+**/streaming_test*.txt
+**/pregeneration_test*.txt
