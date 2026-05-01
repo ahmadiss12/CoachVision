@@ -1,0 +1,254 @@
+"""SQLAlchemy models for Option C API endpoints."""
+
+from __future__ import annotations
+
+import datetime as dt
+from datetime import datetime
+from uuid import UUID, uuid4
+
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base
+
+
+def _empty_list() -> list:
+    return []
+
+
+def _empty_dict() -> dict:
+    return {}
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    timezone: Mapped[str] = mapped_column(String, default="UTC")
+    locale: Mapped[str] = mapped_column(String, default="en")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    sessions: Mapped[list["Session"]] = relationship(back_populates="user")
+
+
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_difficulty: Mapped[str] = mapped_column(
+        Enum("beginner", "intermediate", "advanced", name="difficulty_level"),
+        default="intermediate",
+        nullable=False,
+    )
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"))
+    difficulty: Mapped[str] = mapped_column(
+        Enum("beginner", "intermediate", "advanced", name="difficulty_level"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        Enum("planned", "active", "completed", "aborted", name="session_status"),
+        default="planned",
+        nullable=False,
+    )
+    target_sets: Mapped[int] = mapped_column(Integer, default=1)
+    target_reps: Mapped[int] = mapped_column(Integer, default=1)
+    planned_rest_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    total_reps: Mapped[int] = mapped_column(Integer, default=0)
+    avg_form_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
+    session_feedback: Mapped["SessionFeedback | None"] = relationship(
+        "SessionFeedback",
+        back_populates="session",
+        uselist=False,
+    )
+
+
+class SessionFeedback(Base):
+    """One post-session human-readable feedback summary (v1: per session)."""
+
+    __tablename__ = "session_feedback"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    overall_rating: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    errors_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    top_errors: Mapped[list] = mapped_column(JSON, default=_empty_list, nullable=False)
+    error_breakdown: Mapped[dict] = mapped_column(JSON, default=_empty_dict, nullable=False)
+    action_items: Mapped[list] = mapped_column(JSON, default=_empty_list, nullable=False)
+    confidence_overall: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
+    signals_used: Mapped[dict] = mapped_column(JSON, default=_empty_dict, nullable=False)
+    version: Mapped[str] = mapped_column(String(64), default="feedback_rule_v1", nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    session: Mapped["Session"] = relationship("Session", back_populates="session_feedback")
+
+
+class ReadinessFeaturesDaily(Base):
+    """Rolling aggregates persisted after sessions (one row per user/exercise/calendar day UTC)."""
+
+    __tablename__ = "readiness_features_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "exercise_id",
+            "feature_date",
+            name="uq_readiness_features_daily_user_exercise_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    feature_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    sessions_7d: Mapped[int] = mapped_column(Integer, default=0)
+    reps_7d: Mapped[int] = mapped_column(Integer, default=0)
+    avg_form_score_7d: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    avg_rom_7d: Mapped[float | None] = mapped_column(Numeric(7, 3), nullable=True)
+    rom_trend_7d: Mapped[float | None] = mapped_column(Numeric(7, 3), nullable=True)
+    avg_rep_duration_ms_7d: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    days_since_last_session: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sleep_hours: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
+    soreness_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stress_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RepEvent(Base):
+    """Per-rep metrics persisted after a completed live session."""
+
+    __tablename__ = "rep_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    rep_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_angle: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    max_angle: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    range_of_motion: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    depth_quality: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    form_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class FatiguePrediction(Base):
+    __tablename__ = "fatigue_predictions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    readiness_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    fatigue_level: Mapped[str] = mapped_column(
+        Enum("low", "moderate", "high", name="fatigue_level"),
+        nullable=False,
+    )
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    factors: Mapped[list[str]] = mapped_column(JSON, default=list)
+    model_version: Mapped[str] = mapped_column(String, default="rule_v1")
+    input_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class FatigueCalibrationEvent(Base):
+    """Compares pre-workout prediction (if any) to realized session performance."""
+
+    __tablename__ = "fatigue_calibration_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    prediction_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("fatigue_predictions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    predicted_readiness_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    predicted_fatigue_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    actual_performance_score: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    readiness_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    performance_drop_observed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class Achievement(Base):
+    __tablename__ = "achievements"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    xp_reward: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class UserAchievement(Base):
+    __tablename__ = "user_achievements"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    achievement_id: Mapped[str] = mapped_column(
+        ForeignKey("achievements.id", ondelete="CASCADE"), nullable=False
+    )
+    unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class Streak(Base):
+    __tablename__ = "streaks"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    current_streak_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    longest_streak_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_activity_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class XpEvent(Base):
+    __tablename__ = "xp_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
