@@ -19,9 +19,20 @@ Thumbs.db
 # Local secrets/env
 **/.env
 **/.env.local
+!**/.env.example
 
 # Local db or runtime dumps
 **/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.log
 **/output*.txt
 **/streaming_test*.txt
 **/pregeneration_test*.txt
+
+# Local archives and large/generated ML artifacts
+*.rar
+*.zip
+**/pose_landmarker.task
+**/models/*.pkl
+**/squat_dataset/

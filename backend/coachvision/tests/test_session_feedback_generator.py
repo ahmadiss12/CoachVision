@@ -64,6 +64,46 @@ class TestSessionFeedbackGenerator(unittest.TestCase):
         self.assertEqual(data["summary"]["good_reps"], 1)
         self.assertEqual(data["rep_metrics"][0]["rep_number"], 1)
 
+    def test_squat_feedback_includes_specific_wrong_things(self) -> None:
+        w = WorkoutSession(user_id=uuid4(), exercise_id="squat", difficulty="beginner")
+        w.id = uuid4()
+        export = {
+            "summary": {"total_reps": 3, "good_reps": 1},
+            "rep_metrics": [
+                {
+                    "rep_number": 1,
+                    "depth_quality": "very_shallow",
+                    "min_angle": 125,
+                    "max_angle": 172,
+                    "range_of_motion": 47,
+                    "duration": 0.6,
+                },
+                {
+                    "rep_number": 2,
+                    "depth_quality": "shallow",
+                    "min_angle": 108,
+                    "max_angle": 168,
+                    "range_of_motion": 60,
+                    "duration": 1.1,
+                },
+                {
+                    "rep_number": 3,
+                    "depth_quality": "good",
+                    "min_angle": 86,
+                    "max_angle": 171,
+                    "range_of_motion": 85,
+                    "duration": 1.2,
+                },
+            ],
+        }
+        fb = build_session_feedback_row(w, export)
+        codes = {item["code"] for item in fb.top_errors}
+        self.assertIn("squat_depth_very_shallow", codes)
+        self.assertIn("squat_depth_shallow", codes)
+        self.assertIn("squat_rushed_rep", codes)
+        self.assertIn("squat_inconsistent_depth", codes)
+        self.assertGreaterEqual(len(fb.action_items), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

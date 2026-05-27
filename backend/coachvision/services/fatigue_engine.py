@@ -7,6 +7,17 @@ from typing import Any
 
 from .fatigue_features import RollingFeatureSnapshot, snapshot_to_dict
 
+LOAD_BEARING_EXERCISES = frozenset(
+    {
+        "squat",
+        "lunge",
+        "deadlift",
+        "bicep_curl",
+        "shoulder_press",
+    }
+)
+STATIC_HOLD_EXERCISES = frozenset({"plank", "wall_sit"})
+
 
 @dataclass
 class ExplainabilityFactor:
@@ -34,13 +45,20 @@ class FatiguePredictResult:
     feature_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
-def _parse_user_context(ctx: dict[str, Any]) -> tuple[float, int, int]:
+def _parse_user_context(ctx: dict[str, Any]) -> tuple[float, int, int, float, float | None, float | None]:
     sleep = float(ctx.get("sleepHours", ctx.get("sleep_hours", 7.5)))
     soreness = int(ctx.get("muscleSoreness", ctx.get("soreness", ctx.get("muscle_soreness", 2))))
     stress = int(ctx.get("stress", 2))
+    external_load = float(ctx.get("externalLoadKg", ctx.get("external_load_kg", ctx.get("loadKg", 0))) or 0)
+    body_weight_raw = ctx.get("bodyWeightKg", ctx.get("body_weight_kg"))
+    body_weight = float(body_weight_raw) if body_weight_raw not in (None, "") else None
+    external_load = max(0.0, min(300.0, external_load))
+    if body_weight is not None:
+        body_weight = max(20.0, min(400.0, body_weight))
+    load_ratio = external_load / body_weight if body_weight and body_weight > 0 else None
     soreness = max(1, min(5, soreness))
     stress = max(1, min(5, stress))
-    return sleep, soreness, stress
+    return sleep, soreness, stress, external_load, body_weight, load_ratio
 
 
 def predict_rule_v1(
@@ -48,12 +66,19 @@ def predict_rule_v1(
     user_context: dict[str, Any],
     *,
     window_days: int = 7,
+    exercise_id: str | None = None,
 ) -> FatiguePredictResult:
     """
     Start from a neutral base and apply transparent adjustments.
     Negative impact = lowers readiness score.
     """
-    sleep, soreness, stress = _parse_user_context(user_context or {})
+    normalized_exercise = str(exercise_id or "").strip().lower().replace(" ", "_").replace("-", "_")
+    sleep, soreness, stress, external_load, body_weight, load_ratio = _parse_user_context(user_context or {})
+    is_hold_exercise = normalized_exercise in STATIC_HOLD_EXERCISES
+    volume_unit = "seconds" if is_hold_exercise else "reps"
+    if normalized_exercise not in LOAD_BEARING_EXERCISES:
+        external_load = 0.0
+        load_ratio = None
     explain: list[ExplainabilityFactor] = []
     score = 78
 
@@ -76,9 +101,9 @@ def predict_rule_v1(
         explain.append(
             ExplainabilityFactor(
                 key="rep_volume_7d",
-                label="Recent rep volume",
+                label="Recent hold time" if is_hold_exercise else "Recent rep volume",
                 impact=-rep_penalty,
-                detail=f"{rolling.reps_7d} total reps in-window; high volume adds fatigue load.",
+                detail=f"{rolling.reps_7d} total {volume_unit} in-window; high volume adds fatigue load.",
             )
         )
         score -= rep_penalty
@@ -162,6 +187,30 @@ def predict_rule_v1(
             )
         )
         score += bonus
+
+    # --- Planned external load (dumbbells / weighted squat) ---
+    if external_load > 0 and normalized_exercise in LOAD_BEARING_EXERCISES:
+        if load_ratio is not None:
+            load_penalty = int(min(20, max(2, round(load_ratio * 42))))
+            detail = (
+                f"Planned external load is {external_load:.1f}kg "
+                f"(about {round(load_ratio * 100)}% of bodyweight)."
+            )
+        else:
+            load_penalty = int(min(16, max(2, round(external_load * 0.45))))
+            detail = (
+                f"Planned external load is {external_load:.1f}kg; bodyweight was not available, "
+                "so the load penalty is estimated from absolute weight."
+            )
+        explain.append(
+            ExplainabilityFactor(
+                key="external_load",
+                label="Added exercise load",
+                impact=-load_penalty,
+                detail=detail,
+            )
+        )
+        score -= load_penalty
 
     # --- Self-reported readiness ---
     if sleep < 6:
@@ -251,7 +300,14 @@ def predict_rule_v1(
     factors = [f"{e.label}: {e.detail} ({e.impact:+d})" for e in explain]
     snap = snapshot_to_dict(rolling)
     snap["window_days"] = window_days
-    snap["self_report"] = {"sleepHours": sleep, "muscleSoreness": soreness, "stress": stress}
+    snap["self_report"] = {
+        "sleepHours": sleep,
+        "muscleSoreness": soreness,
+        "stress": stress,
+        "externalLoadKg": external_load,
+        "bodyWeightKg": body_weight,
+        "externalLoadBodyweightRatio": round(load_ratio, 3) if load_ratio is not None else None,
+    }
 
     return FatiguePredictResult(
         readiness_score=score,

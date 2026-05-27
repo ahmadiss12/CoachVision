@@ -241,6 +241,42 @@ class ExerciseDispatcher:
         if self._counter:
             return self._counter.get_progress()
         return 0.0
+
+    def get_live_measurement(self, raw_count: int) -> Dict[str, Any]:
+        """Return exercise-aware live metric metadata for WebSocket clients."""
+        if not self._counter:
+            return {
+                "type": "reps",
+                "label": "REPS",
+                "value": raw_count,
+            }
+
+        if self.is_static_exercise():
+            current_hold = 0.0
+            total_hold = 0.0
+            best_hold = 0.0
+            if hasattr(self._counter, "get_current_hold_duration"):
+                current_hold = float(self._counter.get_current_hold_duration())
+            if hasattr(self._counter, "get_total_hold_time"):
+                total_hold = float(self._counter.get_total_hold_time())
+            if hasattr(self._counter, "_best_hold_duration"):
+                best_hold = float(getattr(self._counter, "_best_hold_duration", 0.0))
+            live_seconds = max(current_hold, best_hold)
+            return {
+                "type": "hold",
+                "label": "SEC",
+                "value": int(round(live_seconds)),
+                "holdDurationSec": round(current_hold, 1),
+                "totalHoldTimeSec": round(total_hold, 1),
+                "bestHoldSec": round(best_hold, 1),
+                "completedHolds": raw_count,
+            }
+
+        return {
+            "type": "reps",
+            "label": "REPS",
+            "value": raw_count,
+        }
     
     def get_summary(self) -> Dict[str, Any]:
         """Get summary statistics for current exercise session."""
@@ -252,6 +288,8 @@ class ExerciseDispatcher:
         """Get detailed metrics for each rep/hold."""
         if self._counter and hasattr(self._counter, 'get_rep_metrics'):
             return self._counter.get_rep_metrics()
+        if self._counter and self.is_static_exercise() and hasattr(self._counter, 'get_hold_sessions'):
+            return self._counter.get_hold_sessions()
         return []
     
     def get_current_exercise(self) -> Optional[str]:
@@ -277,10 +315,31 @@ class ExerciseDispatcher:
         """Export all session data for logging/saving."""
         if not self._counter:
             return {}
-        
+        summary = self.get_summary()
+        measurement = self.get_live_measurement(0)
+        if self.is_static_exercise():
+            hold_seconds = int(round(max(
+                float(summary.get("total_hold_time") or 0),
+                float(summary.get("best_hold") or 0),
+                float(measurement.get("holdDurationSec") or 0),
+                float(measurement.get("totalHoldTimeSec") or 0),
+                float(measurement.get("bestHoldSec") or 0),
+            )))
+            summary = {
+                **summary,
+                "measurement_type": "hold",
+                "total_seconds": hold_seconds,
+                "total_reps": hold_seconds,
+            }
+        else:
+            summary = {
+                **summary,
+                "measurement_type": measurement["type"],
+            }
+
         return {
             'exercise': self.get_current_exercise(),
-            'summary': self.get_summary(),
+            'summary': summary,
             'rep_metrics': self.get_rep_metrics(),
             'counter_state': self._counter.to_dict() if hasattr(self._counter, 'to_dict') else {}
         }

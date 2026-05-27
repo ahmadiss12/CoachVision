@@ -51,7 +51,7 @@ export function createLiveSessionSocket({
               onEnded?.(payload);
               break;
             case 'error':
-              onError?.(payload.message || 'Live session error.');
+              onError?.(payload.message || 'Live session error.', payload.code);
               break;
             default:
               break;
@@ -70,6 +70,9 @@ export function createLiveSessionSocket({
 
   const send = (payload) => {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    if (socket.bufferedAmount > 1_000_000) {
       return false;
     }
     socket.send(JSON.stringify(payload));

@@ -2,9 +2,16 @@
 
 from sqlalchemy import inspect, select, text
 
+from ..core.security import hash_password
 from .base import Base
-from .models import Exercise
+from .models import Exercise, User
 from .session import engine, SessionLocal
+
+ADMIN_USER_SEED: dict[str, str] = {
+    "email": "admin@coachvision.test",
+    "password": "Admin1234",
+    "display_name": "Admin User",
+}
 
 EXERCISE_SEEDS: list[dict[str, str]] = [
     {"id": "squat", "name": "Squat", "description": "Lower-body compound squat movement."},
@@ -65,6 +72,17 @@ def bootstrap_database() -> None:
                     default_difficulty="intermediate",
                 )
             )
+
+        existing_admin = db.scalar(select(User).where(User.email == ADMIN_USER_SEED["email"]))
+        if not existing_admin:
+            db.add(
+                User(
+                    email=ADMIN_USER_SEED["email"],
+                    password_hash=hash_password(ADMIN_USER_SEED["password"]),
+                    display_name=ADMIN_USER_SEED["display_name"],
+                )
+            )
+
         db.commit()
     finally:
         db.close()

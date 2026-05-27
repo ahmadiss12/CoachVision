@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from .deps import get_current_user
-from .schemas import CreateSessionRequest, SessionFeedbackResponse, SessionResponse
+from .schemas import CreateSessionRequest, EndSessionRequest, SessionFeedbackResponse, SessionResponse
 from ..db.models import Exercise, Session, SessionFeedback, User
 from ..db.session import get_db
 
@@ -37,6 +37,19 @@ def create_session(
     db.commit()
     db.refresh(session)
     return SessionResponse.model_validate(session)
+
+
+@router.get("", response_model=list[SessionResponse])
+def list_sessions(
+    db: DbSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[SessionResponse]:
+    rows = db.scalars(
+        select(Session)
+        .where(Session.user_id == current_user.id, Session.status == "completed")
+        .order_by(Session.ended_at.desc(), Session.created_at.desc())
+    ).all()
+    return [SessionResponse.model_validate(row) for row in rows]
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -96,17 +109,30 @@ def start_session(
 @router.post("/{session_id}/end", response_model=SessionResponse)
 def end_session(
     session_id: UUID,
+    payload: EndSessionRequest | None = None,
     db: DbSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SessionResponse:
     session = db.get(Session, session_id)
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if session.status == "completed":
+        from ..services.session_feedback_generator import ensure_session_feedback_for_completed_workout
+
+        ensure_session_feedback_for_completed_workout(db, session)
+        db.commit()
+        db.refresh(session)
+        return SessionResponse.model_validate(session)
+
     session.status = "completed"
     now_utc = datetime.now(timezone.utc)
     session.ended_at = now_utc
     if session.started_at:
         session.duration_seconds = max(0, int((now_utc - session.started_at).total_seconds()))
+    if payload is not None and payload.total_reps is not None:
+        session.total_reps = payload.total_reps
+    if payload is not None and payload.avg_form_score is not None:
+        session.avg_form_score = payload.avg_form_score
     session.updated_at = now_utc
     db.add(session)
     from ..services.session_feedback_generator import ensure_session_feedback_for_completed_workout

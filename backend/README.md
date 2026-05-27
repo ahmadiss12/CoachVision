@@ -1,13 +1,13 @@
-# CoachVision Backend Quickstart
+# CoachVision Backend
 
-This guide gets your local backend running with PostgreSQL and verifies auth in one smoke test.
+FastAPI backend for auth, user profiles, workout sessions, realtime coaching, post-session feedback, fatigue prediction, and gamification.
 
-## 1) Prerequisites
+## Prerequisites
 
 - Python 3.11+
-- Docker Desktop (recommended for local Postgres)
+- PostgreSQL 15+ or Docker Desktop
 
-## 2) Start PostgreSQL (Docker)
+## Start PostgreSQL With Docker
 
 ```powershell
 docker run --name coachvision-postgres `
@@ -18,51 +18,32 @@ docker run --name coachvision-postgres `
   -d postgres:16
 ```
 
-If you already created the container before:
+If the container already exists:
 
 ```powershell
 docker start coachvision-postgres
 ```
 
-Verify:
-
-```powershell
-docker ps
-```
-
-## 3) Configure environment
-
-Copy `.env.example` to `.env`:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-You can keep defaults for local development, then update `JWT_SECRET_KEY` later.
-
-## 4) Install dependencies
+## Configure And Run
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-```
-
-## 5) Run API
-
-```powershell
-python -m uvicorn coachvision.main:app --reload --host 127.0.0.1 --port 8001
+Copy-Item .env.example .env
+python -m uvicorn coachvision.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
 Open:
 
 - Swagger UI: `http://127.0.0.1:8001/docs`
 - OpenAPI JSON: `http://127.0.0.1:8001/v1/openapi.json`
+- Health: `http://127.0.0.1:8001/v1/health`
 
-## 6) Smoke test (health -> login -> users/me)
+## Smoke Test
 
-Run in a second terminal while API is running:
+Run in a second terminal while the backend is running:
 
 ```powershell
 python scripts\smoke_auth.py --base-url http://127.0.0.1:8001 --email test@example.com --password test1234 --display-name "Test User"
@@ -72,8 +53,6 @@ Expected output ends with `Smoke test passed`.
 
 ## Notes
 
-- App startup seeds exercise data automatically.
-- Swagger `Authorize` now works with:
-  - `username` = your email
-  - `password` = your password
-- If you see form-related errors, ensure `python-multipart` is installed via `requirements.txt`.
+- Startup creates missing tables and seeds the supported exercises.
+- Swagger `Authorize` uses `username = email` and `password = password`.
+- The optional server-side pose model path is `coachvision/ai/pose_landmarker.task`. The mobile app sends client-side landmarks, so this file is not required for normal mobile live workouts.

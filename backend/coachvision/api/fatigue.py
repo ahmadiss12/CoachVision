@@ -55,6 +55,7 @@ def predict_fatigue(
         rolling,
         payload.user_context,
         window_days=payload.recent_window_days,
+        exercise_id=payload.exercise_id,
     )
 
     record = FatiguePrediction(

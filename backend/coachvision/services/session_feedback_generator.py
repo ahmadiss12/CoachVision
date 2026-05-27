@@ -18,7 +18,7 @@ FEEDBACK_VERSION = "feedback_rule_v1"
 
 _SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1}
 
-_DEPTH_META: dict[str, dict[str, str]] = {
+_ISSUE_META: dict[str, dict[str, str]] = {
     "depth_shallow": {
         "label": "Partial depth",
         "severity": "medium",
@@ -31,6 +31,42 @@ _DEPTH_META: dict[str, dict[str, str]] = {
         "why": "Several reps used minimal range of motion.",
         "fix": "Lower under control until you hit your depth target.",
     },
+    "squat_depth_shallow": {
+        "label": "Squat depth was slightly shallow",
+        "severity": "medium",
+        "why": "One or more squat reps did not reach the target bottom position.",
+        "fix": "Sit the hips back and lower until the knees reach the target angle before standing.",
+    },
+    "squat_depth_very_shallow": {
+        "label": "Squats were too shallow",
+        "severity": "high",
+        "why": "Some reps used too little knee bend, so the movement range was incomplete.",
+        "fix": "Slow the descent and aim to reach parallel depth before driving up.",
+    },
+    "squat_limited_rom": {
+        "label": "Limited squat range of motion",
+        "severity": "medium",
+        "why": "The difference between the top and bottom knee angle was small.",
+        "fix": "Start tall, descend deeper, then return fully to standing on every rep.",
+    },
+    "squat_rushed_rep": {
+        "label": "Rushed squat tempo",
+        "severity": "low",
+        "why": "Some reps were completed very quickly, which can reduce control and form quality.",
+        "fix": "Use a controlled rhythm: lower smoothly, pause briefly, then stand up.",
+    },
+    "squat_inconsistent_depth": {
+        "label": "Inconsistent squat depth",
+        "severity": "medium",
+        "why": "The bottom position changed noticeably between reps.",
+        "fix": "Pick one depth target and try to hit the same bottom position each rep.",
+    },
+    "squat_incomplete_stand": {
+        "label": "Incomplete standing position",
+        "severity": "medium",
+        "why": "Some reps did not clearly return to a tall standing position.",
+        "fix": "Finish each rep by standing tall before starting the next descent.",
+    },
 }
 
 
@@ -42,11 +78,76 @@ def _slug_issue(text: str) -> str:
 
 
 def _severity_for_code(code: str) -> str:
+    if code in _ISSUE_META:
+        return _ISSUE_META[code].get("severity", "low")
     if code in ("depth_very_shallow",):
         return "high"
     if code in ("depth_shallow",):
         return "medium"
     return "low"
+
+
+def _normalize_exercise_id(exercise_id: str | None) -> str:
+    return str(exercise_id or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return None
+    if x != x or x in (float("inf"), float("-inf")):  # noqa: PLR0124
+        return None
+    return x
+
+
+def _duration_seconds(rep: dict[str, Any]) -> float | None:
+    seconds = _safe_float(rep.get("duration"))
+    if seconds is not None:
+        return seconds
+    millis = _safe_float(rep.get("duration_ms"))
+    if millis is not None:
+        return millis / 1000.0
+    return None
+
+
+def _depth_issue_code(exercise_id: str, depth_quality: str) -> str | None:
+    if depth_quality == "shallow":
+        return "squat_depth_shallow" if exercise_id == "squat" else "depth_shallow"
+    if depth_quality == "very_shallow":
+        return "squat_depth_very_shallow" if exercise_id == "squat" else "depth_very_shallow"
+    return None
+
+
+def _meta_for_code(code: str) -> dict[str, str]:
+    if code in _ISSUE_META:
+        return _ISSUE_META[code]
+    return {
+        "label": code.replace("_", " ").title(),
+        "severity": _severity_for_code(code),
+        "why": "Observed across one or more reps.",
+        "fix": "Review the movement and adjust your form next set.",
+    }
+
+
+def _add_rep_metric_issues(exercise_id: str, rep: dict[str, Any], add_issue) -> None:
+    if exercise_id != "squat":
+        return
+
+    depth_quality = rep.get("depth_quality")
+    rom = _safe_float(rep.get("range_of_motion"))
+    if rom is not None and rom < 55 and depth_quality not in ("shallow", "very_shallow"):
+        add_issue("squat_limited_rom")
+
+    duration = _duration_seconds(rep)
+    if duration is not None and duration < 0.75:
+        add_issue("squat_rushed_rep")
+
+    max_angle = _safe_float(rep.get("max_angle"))
+    if max_angle is not None and max_angle < 160:
+        add_issue("squat_incomplete_stand")
 
 
 def export_data_from_rep_events(
@@ -64,6 +165,10 @@ def export_data_from_rep_events(
             "rep_number": r.rep_number,
             "depth_quality": dq,
             "form_score": float(r.form_score) if r.form_score is not None else None,
+            "min_angle": float(r.min_angle) if r.min_angle is not None else None,
+            "max_angle": float(r.max_angle) if r.max_angle is not None else None,
+            "range_of_motion": float(r.range_of_motion) if r.range_of_motion is not None else None,
+            "duration": float(r.duration_ms) / 1000.0 if r.duration_ms is not None else None,
         }
         extra = r.extra if isinstance(r.extra, dict) else {}
         fi = extra.get("form_issues")
@@ -128,33 +233,45 @@ def build_session_feedback_row(
     ts = now or datetime.now(timezone.utc)
     inner = export_data.get("summary") or {}
     rep_metrics = export_data.get("rep_metrics") or []
+    exercise_id = _normalize_exercise_id(workout.exercise_id)
+    measurement_type = str(inner.get("measurement_type") or "reps").lower()
     total_reps = int(inner.get("total_reps", 0))
     if total_reps <= 0 and rep_metrics:
         total_reps = len(rep_metrics)
 
     counts: dict[str, int] = {}
     labels: dict[str, str] = {}
+    squat_min_angles: list[float] = []
 
-    def add_issue(code: str, label: str, n: int = 1) -> None:
+    def add_issue(code: str, label: str | None = None, n: int = 1) -> None:
         counts[code] = counts.get(code, 0) + n
-        labels.setdefault(code, label)
+        labels.setdefault(code, label or _meta_for_code(code)["label"])
 
     for rep in rep_metrics:
         if not isinstance(rep, dict):
             continue
         dq = rep.get("depth_quality")
-        if dq == "shallow":
-            meta = _DEPTH_META["depth_shallow"]
-            add_issue("depth_shallow", meta["label"])
-        elif dq == "very_shallow":
-            meta = _DEPTH_META["depth_very_shallow"]
-            add_issue("depth_very_shallow", meta["label"])
+        if isinstance(dq, str):
+            depth_code = _depth_issue_code(exercise_id, dq)
+            if depth_code:
+                add_issue(depth_code)
+
+        min_angle = _safe_float(rep.get("min_angle"))
+        if exercise_id == "squat" and min_angle is not None:
+            squat_min_angles.append(min_angle)
+
+        _add_rep_metric_issues(exercise_id, rep, add_issue)
+
         raw_issues = rep.get("form_issues")
         if isinstance(raw_issues, list):
             for w in raw_issues:
                 if isinstance(w, str) and w.strip():
                     code = _slug_issue(w)
                     add_issue(code, w.strip()[:120])
+
+    if exercise_id == "squat" and len(squat_min_angles) >= 3:
+        if max(squat_min_angles) - min(squat_min_angles) >= 18:
+            add_issue("squat_inconsistent_depth")
 
     errors_count = sum(counts.values())
 
@@ -172,42 +289,33 @@ def build_session_feedback_row(
     )
     top_errors: list[dict[str, Any]] = []
     for code in sorted_codes[:8]:
-        sev = _severity_for_code(code)
-        if code in _DEPTH_META:
-            sev = _DEPTH_META[code].get("severity", sev)
+        meta = _meta_for_code(code)
         top_errors.append(
             {
                 "code": code,
-                "label": labels.get(code, code.replace("_", " ").title()),
+                "label": labels.get(code, meta["label"]),
                 "count": counts[code],
-                "severity": sev,
+                "severity": meta["severity"],
             }
         )
 
     error_breakdown: dict[str, Any] = {}
     for code, n in counts.items():
-        sev = _severity_for_code(code)
-        why = "Observed across one or more reps."
-        fix = "Review replay and adjust movement pattern."
-        if code in _DEPTH_META:
-            sev = _DEPTH_META[code]["severity"]
-            why = _DEPTH_META[code]["why"]
-            fix = _DEPTH_META[code]["fix"]
+        meta = _meta_for_code(code)
         entry: dict[str, Any] = {
             "count": n,
-            "severity": sev,
-            "why": why,
-            "fix": fix,
+            "severity": meta["severity"],
+            "why": meta["why"],
+            "fix": meta["fix"],
         }
-        if code not in _DEPTH_META:
-            entry["why"] = labels.get(code, why)
-            entry["fix"] = fix
+        if code not in _ISSUE_META:
+            entry["why"] = labels.get(code, meta["why"])
         error_breakdown[code] = entry
 
     action_items: list[dict[str, Any]] = []
     prio = 1
     for code in sorted_codes[:6]:
-        title = labels.get(code, code.replace("_", " ").title())
+        title = labels.get(code, _meta_for_code(code)["label"])
         eb = error_breakdown.get(code, {})
         action_items.append(
             {
@@ -235,10 +343,12 @@ def build_session_feedback_row(
         "errors_count": errors_count,
         "avg_form_score": workout.avg_form_score,
         "good_reps": inner.get("good_reps"),
+        "measurement_type": measurement_type,
+        "total_seconds": inner.get("total_seconds"),
         "source": export_source,
     }
 
-    summary_text = _compose_summary(total_reps, rating, counts, sorted_codes, labels)
+    summary_text = _compose_summary(total_reps, rating, counts, sorted_codes, labels, measurement_type)
 
     return SessionFeedback(
         id=uuid4(),
@@ -265,20 +375,22 @@ def _compose_summary(
     counts: dict[str, int],
     sorted_codes: list[str],
     labels: dict[str, str],
+    measurement_type: str = "reps",
 ) -> str:
+    is_hold = measurement_type == "hold"
+    unit = "second(s)" if is_hold else "rep(s)"
     if total_reps <= 0:
+        if is_hold:
+            return "No hold time was recorded for this session."
         return "No reps were recorded for this session."
     if not counts:
+        if is_hold:
+            return f"Solid hold - {total_reps} second(s) of tracked position. Keep building time under control."
         return f"Solid session — {total_reps} rep(s) with no major issues flagged. Keep it up."
     top = sorted_codes[0]
-    if top in _DEPTH_META:
-        label = _DEPTH_META[top]["label"]
-    elif top in labels:
-        label = labels[top][:100]
-    else:
-        label = top.replace("_", " ")
+    label = labels.get(top, _meta_for_code(top)["label"])[:100]
     parts = [
-        f"Completed {total_reps} rep(s); overall score around {rating}/100.",
+        f"Completed {total_reps} {unit}; overall score around {rating}/100.",
         f"Main focus: {label.lower()} ({counts[top]} instance(s)).",
         "See action items for cues to improve next time.",
     ]

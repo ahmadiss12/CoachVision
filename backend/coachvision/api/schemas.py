@@ -71,6 +71,11 @@ class CreateSessionRequest(BaseModel):
     difficulty: str = "intermediate"
 
 
+class EndSessionRequest(BaseModel):
+    total_reps: int | None = Field(default=None, ge=0, alias="totalReps")
+    avg_form_score: float | None = Field(default=None, ge=0, le=100, alias="avgFormScore")
+
+
 class SessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -81,6 +86,8 @@ class SessionResponse(BaseModel):
     target_sets: int = Field(alias="targetSets")
     target_reps: int = Field(alias="targetReps")
     total_reps: int = Field(alias="totalReps")
+    avg_form_score: float | None = Field(default=None, alias="avgFormScore")
+    duration_seconds: int | None = Field(default=None, alias="durationSeconds")
     created_at: datetime = Field(alias="createdAt")
     started_at: datetime | None = Field(default=None, alias="startedAt")
     ended_at: datetime | None = Field(default=None, alias="endedAt")
@@ -91,7 +98,7 @@ class FatiguePredictRequest(BaseModel):
     user_context: dict = Field(
         default_factory=dict,
         alias="userContext",
-        description="Optional: sleepHours, muscleSoreness (1–5), stress (1–5).",
+        description="Optional: sleepHours, muscleSoreness (1-5), stress (1-5), externalLoadKg, bodyWeightKg.",
     )
     recent_window_days: int = Field(14, ge=1, le=90, alias="recentWindowDays")
 

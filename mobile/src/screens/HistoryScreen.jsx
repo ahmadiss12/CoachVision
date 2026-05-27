@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { FlatList, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/src/components/Card';
 import { useAppState } from '@/src/state/app-state';
@@ -15,7 +15,11 @@ function HistoryItem({ item }) {
     </Card>);
 }
 export function HistoryScreen() {
-    const { history } = useAppState();
+    const { history, loadHistory } = useAppState();
+    useEffect(() => {
+        loadHistory();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return (<SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <Text style={styles.title}>Workout history</Text>

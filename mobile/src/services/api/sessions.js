@@ -9,6 +9,8 @@ function toSessionShape(payload) {
     targetSets: payload.targetSets ?? payload.target_sets ?? 0,
     targetReps: payload.targetReps ?? payload.target_reps ?? 0,
     totalReps: payload.totalReps ?? payload.total_reps ?? 0,
+    avgFormScore: payload.avgFormScore ?? payload.avg_form_score ?? null,
+    durationSeconds: payload.durationSeconds ?? payload.duration_seconds ?? null,
     createdAt: payload.createdAt ?? payload.created_at,
     startedAt: payload.startedAt ?? payload.started_at ?? null,
     endedAt: payload.endedAt ?? payload.ended_at ?? null,
@@ -48,6 +50,11 @@ export async function getSession(sessionId) {
   return toSessionShape(payload);
 }
 
+export async function listSessions() {
+  const payload = await apiRequest('/sessions', { auth: true });
+  return Array.isArray(payload) ? payload.map(toSessionShape) : [];
+}
+
 export async function startSession(sessionId) {
   const payload = await apiRequest(`/sessions/${sessionId}/start`, {
     method: 'POST',
@@ -56,10 +63,14 @@ export async function startSession(sessionId) {
   return toSessionShape(payload);
 }
 
-export async function endSession(sessionId) {
+export async function endSession(sessionId, summary = {}) {
   const payload = await apiRequest(`/sessions/${sessionId}/end`, {
     method: 'POST',
     auth: true,
+    body: {
+      totalReps: summary.totalReps ?? summary.total_reps ?? 0,
+      avgFormScore: summary.avgFormScore ?? summary.avg_form_score ?? null,
+    },
   });
   return toSessionShape(payload);
 }

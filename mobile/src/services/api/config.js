@@ -1,3 +1,6 @@
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
 const trimTrailingSlash = (value) => value.replace(/\/+$/, '');
 
 const withDefault = (value, fallback) => {
@@ -8,12 +11,37 @@ const withDefault = (value, fallback) => {
   return normalized.length > 0 ? normalized : fallback;
 };
 
+const getExpoDevHost = () => {
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
+  if (typeof hostUri !== 'string') {
+    return '';
+  }
+  return hostUri.split(':')[0] || '';
+};
+
+const normalizeOriginForPlatform = (origin) => {
+  if (Platform.OS === 'web') {
+    return origin;
+  }
+  if (!/^(https?|wss?):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    return origin;
+  }
+
+  const devHost = getExpoDevHost();
+  if (!devHost) {
+    return origin;
+  }
+  const url = new URL(origin);
+  url.hostname = devHost;
+  return url.toString();
+};
+
 const API_ORIGIN = trimTrailingSlash(
-  withDefault(process.env.EXPO_PUBLIC_API_ORIGIN, 'http://127.0.0.1:8000')
+  normalizeOriginForPlatform(withDefault(process.env.EXPO_PUBLIC_API_ORIGIN, 'http://127.0.0.1:8001'))
 );
 const API_PREFIX = withDefault(process.env.EXPO_PUBLIC_API_PREFIX, '/v1');
 
-const configuredWsOrigin = withDefault(process.env.EXPO_PUBLIC_WS_ORIGIN, '');
+const configuredWsOrigin = normalizeOriginForPlatform(withDefault(process.env.EXPO_PUBLIC_WS_ORIGIN, ''));
 const derivedWsOrigin = API_ORIGIN.replace(/^http/i, 'ws');
 const WS_ORIGIN = trimTrailingSlash(configuredWsOrigin || derivedWsOrigin);
 

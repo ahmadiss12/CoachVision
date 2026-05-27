@@ -15,7 +15,11 @@ from coachvision.core.security import decode_token
 from coachvision.db.models import Session as WorkoutSession
 from coachvision.db.session import get_db
 from coachvision.realtime.contract import SCHEMA_VERSION, WsErrorCode
-from coachvision.realtime.pipeline import LiveSessionState, process_jpeg_frame
+from coachvision.realtime.pipeline import (
+    LiveSessionState,
+    process_jpeg_frame,
+    process_pose_landmarks,
+)
 from coachvision.services.ws_persistence import (
     abort_active_workout,
     finalize_completed_workout,
@@ -215,6 +219,76 @@ async def websocket_live(
                 )
                 continue
 
+            if mtype == "pose":
+                if msg.get("sessionId") != session_state.session_id:
+                    await websocket.send_json(
+                        _j(
+                            {
+                                "type": "error",
+                                "sessionId": session_state.session_id,
+                                "message": "session_mismatch",
+                                "code": WsErrorCode.NO_SESSION,
+                            }
+                        )
+                    )
+                    continue
+
+                timestamp_ms = msg.get("timestampMs")
+                if not isinstance(timestamp_ms, int):
+                    timestamp_ms = None
+
+                client_inference_ms = msg.get("clientInferenceMs")
+                if not isinstance(client_inference_ms, (int, float)):
+                    client_inference_ms = None
+
+                landmarks = msg.get("landmarks")
+                result = process_pose_landmarks(
+                    session_state,
+                    landmarks,
+                    timestamp_ms,
+                    client_inference_ms,
+                )
+
+                if result["kind"] == "error":
+                    await websocket.send_json(
+                        _j(
+                            {
+                                "type": "error",
+                                "sessionId": session_state.session_id,
+                                "message": result["message"],
+                                "code": result["code"],
+                            }
+                        )
+                    )
+                    continue
+
+                await websocket.send_json(
+                    _j(
+                        {
+                            "type": "metrics",
+                            "sessionId": result["session_id"],
+                            "count": result["count"],
+                            "rawCount": result.get("raw_count"),
+                            "measurementType": result.get("measurement_type"),
+                            "measurementLabel": result.get("measurement_label"),
+                            "holdDurationSec": result.get("hold_duration_sec"),
+                            "totalHoldTimeSec": result.get("total_hold_time_sec"),
+                            "bestHoldSec": result.get("best_hold_sec"),
+                            "completedHolds": result.get("completed_holds"),
+                            "state": result["state"],
+                            "angle": result["angle"],
+                            "feedback": result["feedback"],
+                            "progress": result["progress"],
+                            "formName": result["form_name"],
+                            "confidence": result["confidence"],
+                            "pose": result.get("pose"),
+                            "voice": result.get("voice"),
+                            "serverTimingMs": result.get("timing_ms"),
+                        }
+                    )
+                )
+                continue
+
             if mtype == "frame":
                 if msg.get("sessionId") != session_state.session_id:
                     await websocket.send_json(
@@ -228,6 +302,11 @@ async def websocket_live(
                         )
                     )
                     continue
+
+                timestamp_ms = msg.get("timestampMs")
+                if not isinstance(timestamp_ms, int):
+                    timestamp_ms = None
+
                 b64 = msg.get("imageJpegBase64")
                 if not b64 or not isinstance(b64, str):
                     await websocket.send_json(
@@ -241,8 +320,12 @@ async def websocket_live(
                         )
                     )
                     continue
-
-                result = await asyncio.to_thread(process_jpeg_frame, session_state, b64)
+                result = await asyncio.to_thread(
+                    process_jpeg_frame,
+                    session_state,
+                    b64,
+                    timestamp_ms,
+                )
 
                 if result["kind"] == "error":
                     await websocket.send_json(
@@ -259,7 +342,13 @@ async def websocket_live(
 
                 if result["kind"] == "no_pose":
                     await websocket.send_json(
-                        _j({"type": "noPose", "sessionId": result["session_id"]})
+                        _j(
+                            {
+                                "type": "noPose",
+                                "sessionId": result["session_id"],
+                                "serverTimingMs": result.get("timing_ms"),
+                            }
+                        )
                     )
                     continue
 
@@ -269,12 +358,22 @@ async def websocket_live(
                             "type": "metrics",
                             "sessionId": result["session_id"],
                             "count": result["count"],
+                            "rawCount": result.get("raw_count"),
+                            "measurementType": result.get("measurement_type"),
+                            "measurementLabel": result.get("measurement_label"),
+                            "holdDurationSec": result.get("hold_duration_sec"),
+                            "totalHoldTimeSec": result.get("total_hold_time_sec"),
+                            "bestHoldSec": result.get("best_hold_sec"),
+                            "completedHolds": result.get("completed_holds"),
                             "state": result["state"],
                             "angle": result["angle"],
                             "feedback": result["feedback"],
                             "progress": result["progress"],
                             "formName": result["form_name"],
                             "confidence": result["confidence"],
+                            "pose": result.get("pose"),
+                            "voice": result.get("voice"),
+                            "serverTimingMs": result.get("timing_ms"),
                         }
                     )
                 )

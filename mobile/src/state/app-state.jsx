@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { getExerciseMetadata } from '../constants/exercise-metadata';
 import {
   loginUser,
   logoutUser,
@@ -8,9 +9,14 @@ import {
 import { clearApiAuthTokens, setApiAuthTokens } from '../services/api/client';
 import { listExercises } from '../services/api/exercises';
 import {
+  listFatigueHistory,
+  predictFatigue as requestFatiguePrediction,
+} from '../services/api/fatigue';
+import {
   createSession,
   endSession,
   getSessionFeedback,
+  listSessions,
   startSession,
 } from '../services/api/sessions';
 import { getCurrentUser, updateCurrentUser } from '../services/api/users';
@@ -21,6 +27,7 @@ const defaultMetrics = {
     feedback: 'Start your set when ready.',
     progress: 0,
     formName: 'Correct',
+    confidence: 0,
 };
 function computeAgeFromDob(dateOfBirth) {
     if (!dateOfBirth)
@@ -37,6 +44,48 @@ function computeAgeFromDob(dateOfBirth) {
     return Math.max(1, age);
 }
 const AppStateContext = createContext(null);
+function formatExerciseName(exerciseId) {
+    const meta = getExerciseMetadata(exerciseId);
+    if (meta.label) {
+        return meta.label;
+    }
+    return String(exerciseId || 'Workout')
+        .split(/[_-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function summaryFromSession(session) {
+    const meta = getExerciseMetadata(session.exerciseId);
+    const endedAt = session.endedAt || session.createdAt || new Date().toISOString();
+    const startedAt = session.startedAt || session.createdAt || endedAt;
+    const startedMs = new Date(startedAt).getTime();
+    const endedMs = new Date(endedAt).getTime();
+    const fallbackDuration = Number.isFinite(startedMs) && Number.isFinite(endedMs)
+        ? Math.max(1, Math.round((endedMs - startedMs) / 1000))
+        : 0;
+    return {
+        id: session.id,
+        sessionId: session.id,
+        exerciseId: session.exerciseId,
+        measurementType: meta.measurementType,
+        metricLabel: meta.metricLabel,
+        startedAt,
+        endedAt,
+        durationSec: session.durationSeconds ?? fallbackDuration,
+        exerciseName: formatExerciseName(session.exerciseId),
+        difficulty: session.difficulty,
+        targetSets: session.targetSets ?? 1,
+        targetReps: session.targetReps ?? 1,
+        reps: session.totalReps ?? 0,
+        score: session.avgFormScore ?? 0,
+        notes: '',
+        feedback: null,
+        fatiguePrediction: null,
+    };
+}
+
 export function AppStateProvider({ children }) {
     const [authUser, setAuthUser] = useState(null);
     const [authTokens, setAuthTokens] = useState(null);
@@ -48,6 +97,8 @@ export function AppStateProvider({ children }) {
     const [currentSession, setCurrentSession] = useState(null);
     const [latestSummary, setLatestSummary] = useState(null);
     const [latestFeedback, setLatestFeedback] = useState(null);
+    const [latestFatiguePrediction, setLatestFatiguePrediction] = useState(null);
+    const [fatigueHistory, setFatigueHistory] = useState([]);
     const [availableExercises, setAvailableExercises] = useState([]);
     const [history, setHistory] = useState([]);
     const [bodyMetrics, setBodyMetrics] = useState([]);
@@ -55,6 +106,18 @@ export function AppStateProvider({ children }) {
     const setTokensEverywhere = (tokens) => {
         setAuthTokens(tokens);
         setApiAuthTokens(tokens);
+    };
+
+    const resetUserScopedState = () => {
+        setProfile(null);
+        setGoals(null);
+        setBodyMetrics([]);
+        setCurrentSession(null);
+        setLatestSummary(null);
+        setLatestFeedback(null);
+        setLatestFatiguePrediction(null);
+        setFatigueHistory([]);
+        setHistory([]);
     };
 
     const ensureFreshAccessToken = async () => {
@@ -73,10 +136,32 @@ export function AppStateProvider({ children }) {
         }
     };
 
+    const hydrateProfileFromUser = (user) => {
+        if (!user?.date_of_birth || !user?.height_cm || !user?.weight_kg) {
+            return;
+        }
+        const safeDob = user.date_of_birth;
+        const safeHeightCm = Number(user.height_cm);
+        const safeWeightKg = Number(user.weight_kg);
+        const safeBodyFatPercent = Number(user.body_fat_percent ?? 0);
+        const heightM = safeHeightCm / 100;
+        const bmi = safeWeightKg / (heightM * heightM);
+        setProfile({
+            dateOfBirth: safeDob,
+            age: computeAgeFromDob(safeDob),
+            heightCm: safeHeightCm,
+            weightKg: safeWeightKg,
+            bodyFatPercent: safeBodyFatPercent,
+            bmi: Number.isFinite(bmi) ? Number(bmi.toFixed(1)) : 0,
+            avatarUri: user.avatar_url ?? undefined,
+        });
+    };
+
     const loadCurrentUser = async () => {
         try {
             const user = await getCurrentUser();
             setAuthUser(user);
+            hydrateProfileFromUser(user);
             setLatestError(null);
             return user;
         } catch (error) {
@@ -85,11 +170,35 @@ export function AppStateProvider({ children }) {
                 if (refreshed) {
                     const user = await getCurrentUser();
                     setAuthUser(user);
+                    hydrateProfileFromUser(user);
                     setLatestError(null);
                     return user;
                 }
             }
             throw error;
+        }
+    };
+
+    const loadHistory = async () => {
+        try {
+            const sessions = await listSessions();
+            const summaries = sessions.map(summaryFromSession);
+            setHistory(summaries);
+            setLatestError(null);
+            return summaries;
+        } catch (error) {
+            if (error?.status === 401) {
+                const refreshed = await ensureFreshAccessToken();
+                if (refreshed) {
+                    const sessions = await listSessions();
+                    const summaries = sessions.map(summaryFromSession);
+                    setHistory(summaries);
+                    setLatestError(null);
+                    return summaries;
+                }
+            }
+            setLatestError(error?.message || 'Failed to load workout history.');
+            return [];
         }
     };
 
@@ -104,7 +213,9 @@ export function AppStateProvider({ children }) {
         try {
             const tokens = await loginUser({ email, password });
             setTokensEverywhere(tokens);
+            resetUserScopedState();
             const user = await loadCurrentUser();
+            await loadHistory();
             return user;
         } catch (error) {
             setLatestError(error?.message || 'Login failed. Please try again.');
@@ -130,7 +241,9 @@ export function AppStateProvider({ children }) {
                 displayName: inferredName,
             });
             setTokensEverywhere(tokens);
+            resetUserScopedState();
             const user = await loadCurrentUser();
+            await loadHistory();
             return user;
         } catch (error) {
             setLatestError(error?.message || 'Registration failed. Please try again.');
@@ -155,7 +268,11 @@ export function AppStateProvider({ children }) {
         setGoals(null);
         setBodyMetrics([]);
         setCurrentSession(null);
+        setLatestSummary(null);
         setLatestFeedback(null);
+        setLatestFatiguePrediction(null);
+        setFatigueHistory([]);
+        setHistory([]);
     };
     const saveProfile = (payload) => {
         const safeDob = payload.dateOfBirth || '2000-01-01';
@@ -250,6 +367,76 @@ export function AppStateProvider({ children }) {
     const toggleThemeMode = () => {
         setThemeMode((prev) => (prev === 'dark' ? 'light' : 'dark'));
     };
+    const predictFatigue = async ({
+        exerciseId,
+        userContext = {},
+        recentWindowDays = 14,
+        silent = false,
+    } = {}) => {
+        if (!exerciseId) {
+            if (!silent) {
+                setLatestError('Please choose an exercise first.');
+            }
+            return null;
+        }
+        if (!authTokens?.accessToken) {
+            if (!silent) {
+                setLatestError('Please sign in first.');
+            }
+            return null;
+        }
+
+        const run = () => requestFatiguePrediction({ exerciseId, userContext, recentWindowDays });
+        try {
+            const prediction = await run();
+            setLatestFatiguePrediction(prediction);
+            if (!silent) {
+                setLatestError(null);
+            }
+            return prediction;
+        } catch (error) {
+            let requestError = error;
+            if (error?.status === 401) {
+                const refreshed = await ensureFreshAccessToken();
+                if (refreshed) {
+                    try {
+                        const prediction = await run();
+                        setLatestFatiguePrediction(prediction);
+                        if (!silent) {
+                            setLatestError(null);
+                        }
+                        return prediction;
+                    } catch (retryError) {
+                        requestError = retryError;
+                    }
+                }
+            }
+            if (!silent) {
+                setLatestError(requestError?.message || 'Unable to check fatigue readiness.');
+            }
+            return null;
+        }
+    };
+    const loadFatigueHistory = async (exerciseId) => {
+        if (!exerciseId || !authTokens?.accessToken) {
+            return [];
+        }
+        try {
+            const items = await listFatigueHistory(exerciseId);
+            setFatigueHistory(items);
+            return items;
+        } catch (error) {
+            if (error?.status === 401) {
+                const refreshed = await ensureFreshAccessToken();
+                if (refreshed) {
+                    const items = await listFatigueHistory(exerciseId);
+                    setFatigueHistory(items);
+                    return items;
+                }
+            }
+            return [];
+        }
+    };
     const loadExercises = async () => {
         try {
             const items = await listExercises();
@@ -284,6 +471,7 @@ export function AppStateProvider({ children }) {
                 sessionId: started.id,
                 startedAt: started.startedAt || new Date().toISOString(),
                 latestMetrics: defaultMetrics,
+                fatiguePrediction: config.fatiguePrediction ?? null,
             };
             setCurrentSession(nextSession);
             setLatestError(null);
@@ -313,7 +501,30 @@ export function AppStateProvider({ children }) {
             return null;
         setIsBusy(true);
         try {
-            const ended = await endSession(currentSession.sessionId);
+            const counterSummary = endedSummary?.summary ?? {};
+            const exerciseMeta = getExerciseMetadata(currentSession.config.exerciseName);
+            const isHoldExercise = exerciseMeta.measurementType === 'hold';
+            const fallbackReps = isHoldExercise
+                ? Math.round(
+                    counterSummary.total_seconds
+                    ?? counterSummary.totalSeconds
+                    ?? counterSummary.total_hold_time
+                    ?? currentSession.latestMetrics.totalHoldTimeSec
+                    ?? currentSession.latestMetrics.bestHoldSec
+                    ?? currentSession.latestMetrics.holdDurationSec
+                    ?? currentSession.latestMetrics.count
+                    ?? 0
+                )
+                : counterSummary.total_reps
+                    ?? counterSummary.totalReps
+                    ?? endedSummary?.totalReps
+                    ?? currentSession.latestMetrics.count
+                    ?? 0;
+            const fallbackScore = Math.min(100, Math.round((currentSession.latestMetrics.confidence || 0) * 100));
+            const ended = await endSession(currentSession.sessionId, {
+                totalReps: fallbackReps,
+                avgFormScore: fallbackScore,
+            });
             let feedback = null;
             try {
                 feedback = await getSessionFeedback(currentSession.sessionId);
@@ -326,22 +537,55 @@ export function AppStateProvider({ children }) {
             const startedAt = ended.startedAt || currentSession.startedAt;
             const startedMs = new Date(startedAt).getTime();
             const endedMs = new Date(endedAt).getTime();
-            const durationSec = Math.max(1, Math.round((endedMs - startedMs) / 1000));
-            const reps = endedSummary?.totalReps ?? currentSession.latestMetrics.count ?? 0;
-            const score = feedback?.overallRating ?? Math.min(100, Math.round(70 + (currentSession.latestMetrics.progress || 0) * 30));
+            const durationSec = ended.durationSeconds ?? Math.max(1, Math.round((endedMs - startedMs) / 1000));
+            const reps = isHoldExercise
+                ? Math.round(
+                    counterSummary.total_seconds
+                    ?? counterSummary.totalSeconds
+                    ?? counterSummary.total_hold_time
+                    ?? ended.totalReps
+                    ?? currentSession.latestMetrics.totalHoldTimeSec
+                    ?? currentSession.latestMetrics.bestHoldSec
+                    ?? currentSession.latestMetrics.holdDurationSec
+                    ?? currentSession.latestMetrics.count
+                    ?? 0
+                )
+                : counterSummary.total_reps
+                    ?? counterSummary.totalReps
+                    ?? endedSummary?.totalReps
+                    ?? ended.totalReps
+                    ?? currentSession.latestMetrics.count
+                    ?? 0;
+            const score = feedback?.overallRating
+                ?? ended.avgFormScore
+                ?? counterSummary.detection_quality
+                ?? Math.min(100, Math.round((currentSession.latestMetrics.confidence || 0) * 100));
+            const nextFatiguePrediction = await predictFatigue({
+                exerciseId: currentSession.config.exerciseName,
+                userContext: currentSession.config.readinessContext ?? {},
+                recentWindowDays: 14,
+                silent: true,
+            });
 
             const summary = {
                 id: ended.id,
                 sessionId: ended.id,
+                exerciseId: currentSession.config.exerciseName,
+                measurementType: currentSession.config.measurementType ?? exerciseMeta.measurementType,
+                metricLabel: currentSession.config.metricLabel ?? exerciseMeta.metricLabel,
                 startedAt,
                 endedAt,
                 durationSec,
-                exerciseName: currentSession.config.exerciseName,
+                exerciseName: formatExerciseName(currentSession.config.exerciseName),
                 difficulty: currentSession.config.difficulty,
+                targetSets: currentSession.config.targetSets ?? 1,
+                targetReps: currentSession.config.targetReps ?? 1,
+                externalLoadKg: currentSession.config.readinessContext?.externalLoadKg ?? 0,
                 reps,
                 score,
                 notes: feedback?.summaryText || currentSession.latestMetrics.feedback,
                 feedback,
+                fatiguePrediction: nextFatiguePrediction ?? currentSession.fatiguePrediction ?? null,
             };
             setLatestSummary(summary);
             setHistory((prev) => [summary, ...prev]);
@@ -372,16 +616,22 @@ export function AppStateProvider({ children }) {
         bodyMetrics,
         latestSummary,
         latestFeedback,
+        latestFatiguePrediction,
+        fatigueHistory,
         login,
         register,
         logout,
         loadCurrentUser,
+        loadHistory,
         loadExercises,
+        predictFatigue,
+        loadFatigueHistory,
         saveProfile,
         saveGoals,
         updateProfileAvatar,
         addBodyMetricEntry,
         clearError,
+        setLatestError,
         toggleThemeMode,
         startWorkout,
         updateMetrics,
