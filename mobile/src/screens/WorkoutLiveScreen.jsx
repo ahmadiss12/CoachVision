@@ -22,6 +22,92 @@ const UI_UPDATE_INTERVAL_MS = 120;
 const POSE_IN_FLIGHT_TIMEOUT_MS = 500;
 const VOICE_CUE_COOLDOWN_MS = 1200;
 const SAME_VOICE_CUE_COOLDOWN_MS = 3500;
+const FORM_TONE_META = {
+    idle: {
+        label: 'Ready',
+        icon: 'scan-outline',
+        color: '#38bdf8',
+        soft: 'rgba(56, 189, 248, 0.16)',
+        border: 'rgba(56, 189, 248, 0.36)',
+    },
+    good: {
+        label: 'Good form',
+        icon: 'checkmark-circle-outline',
+        color: '#22c55e',
+        soft: 'rgba(34, 197, 94, 0.18)',
+        border: 'rgba(34, 197, 94, 0.42)',
+    },
+    warning: {
+        label: 'Needs control',
+        icon: 'alert-circle-outline',
+        color: '#fbbf24',
+        soft: 'rgba(251, 191, 36, 0.18)',
+        border: 'rgba(251, 191, 36, 0.42)',
+    },
+    danger: {
+        label: 'Fix form',
+        icon: 'warning-outline',
+        color: '#ef4444',
+        soft: 'rgba(239, 68, 68, 0.18)',
+        border: 'rgba(239, 68, 68, 0.48)',
+    },
+};
+
+function clampPercent(value) {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+    return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getFormTone(metrics, liveStatus, webStatus) {
+    if (webStatus === 'error' || liveStatus === 'error') {
+        return 'danger';
+    }
+    if (!metrics || liveStatus === 'idle' || liveStatus === 'connecting') {
+        return 'idle';
+    }
+    const feedback = String(metrics.feedback || '').toLowerCase();
+    const formName = String(metrics.formName || '').toLowerCase();
+    const combined = `${feedback} ${formName}`;
+    const confidence = Number(metrics.confidence);
+
+    if (
+        combined.includes('no person') ||
+        combined.includes('no pose') ||
+        combined.includes('not detected') ||
+        combined.includes('step back') ||
+        combined.includes('lost pose') ||
+        combined.includes('unsafe') ||
+        combined.includes('wrong') ||
+        combined.includes('broken') ||
+        combined.includes('collapse') ||
+        combined.includes('sag') ||
+        combined.includes("don't")
+    ) {
+        return 'danger';
+    }
+    if (Number.isFinite(confidence) && confidence > 0 && confidence < 0.35) {
+        return 'danger';
+    }
+    if (
+        (Number.isFinite(confidence) && confidence > 0 && confidence < 0.6) ||
+        (formName && formName !== 'correct') ||
+        combined.includes('adjust') ||
+        combined.includes('shallow') ||
+        combined.includes('deeper') ||
+        combined.includes('lean') ||
+        combined.includes('chest') ||
+        combined.includes('knees') ||
+        combined.includes('heels') ||
+        combined.includes('control') ||
+        combined.includes('straighten') ||
+        combined.includes('align')
+    ) {
+        return 'warning';
+    }
+    return 'good';
+}
 
 const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
 <html>
@@ -107,6 +193,28 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
       [11, 23], [12, 24], [23, 24], [23, 25], [25, 27],
       [24, 26], [26, 28], [27, 31], [28, 32]
     ];
+    const OVERLAY_PALETTES = {
+      idle: {
+        stroke: "rgba(56, 189, 248, 0.94)",
+        joint: "rgba(186, 230, 253, 0.96)",
+        glow: "rgba(56, 189, 248, 0.26)"
+      },
+      good: {
+        stroke: "rgba(34, 197, 94, 0.96)",
+        joint: "rgba(187, 247, 208, 0.96)",
+        glow: "rgba(34, 197, 94, 0.26)"
+      },
+      warning: {
+        stroke: "rgba(251, 191, 36, 0.98)",
+        joint: "rgba(254, 240, 138, 0.98)",
+        glow: "rgba(251, 191, 36, 0.3)"
+      },
+      danger: {
+        stroke: "rgba(239, 68, 68, 0.98)",
+        joint: "rgba(254, 202, 202, 0.98)",
+        glow: "rgba(239, 68, 68, 0.34)"
+      }
+    };
 
     const video = document.getElementById("video");
     const canvas = document.getElementById("overlay");
@@ -118,6 +226,7 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     let lastDetectAt = 0;
     let lastPostAt = 0;
     let lastVideoTime = -1;
+    let overlayTone = "idle";
     const detectTimes = [];
 
     function post(payload) {
@@ -155,39 +264,101 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
       };
     }
 
+    function overlayStyle() {
+      return OVERLAY_PALETTES[overlayTone] || OVERLAY_PALETTES.good;
+    }
+
+    function setOverlayTone(tone) {
+      if (OVERLAY_PALETTES[tone]) {
+        overlayTone = tone;
+      }
+    }
+
+    function handleNativeMessage(event) {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload && payload.type === "overlayTone") {
+          setOverlayTone(payload.tone);
+        }
+      } catch {
+        // Ignore non-JSON messages from the native wrapper.
+      }
+    }
+
+    window.addEventListener("message", handleNativeMessage);
+    document.addEventListener("message", handleNativeMessage);
+
+    function expandedPoints(landmarks) {
+      const points = landmarks.map(screenPoint);
+      const visible = points.filter((point, index) => visibilityOf(landmarks[index]) >= MIN_VISIBILITY);
+      if (visible.length < 2) {
+        return points;
+      }
+
+      const minX = Math.min(...visible.map((point) => point.x));
+      const maxX = Math.max(...visible.map((point) => point.x));
+      const minY = Math.min(...visible.map((point) => point.y));
+      const maxY = Math.max(...visible.map((point) => point.y));
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const scale = 1.045;
+      return points.map((point) => ({
+        x: centerX + (point.x - centerX) * scale,
+        y: centerY + (point.y - centerY) * scale
+      }));
+    }
+
     function drawPose(landmarks) {
       ctx.clearRect(0, 0, canvasCssWidth, canvasCssHeight);
       if (!landmarks) {
         return;
       }
 
-      ctx.lineWidth = 4;
+      const style = overlayStyle();
+      const points = expandedPoints(landmarks);
       ctx.lineCap = "round";
-      ctx.strokeStyle = "rgba(74, 222, 128, 0.92)";
+      ctx.lineJoin = "round";
+
       for (const pair of CONNECTIONS) {
         const a = landmarks[pair[0]];
         const b = landmarks[pair[1]];
         if (!a || !b || visibilityOf(a) < MIN_VISIBILITY || visibilityOf(b) < MIN_VISIBILITY) {
           continue;
         }
-        const pa = screenPoint(a);
-        const pb = screenPoint(b);
+        const pa = points[pair[0]];
+        const pb = points[pair[1]];
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 11;
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.36)";
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = style.glow;
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = style.stroke;
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
         ctx.lineTo(pb.x, pb.y);
         ctx.stroke();
       }
 
-      ctx.fillStyle = "rgba(251, 191, 36, 0.95)";
-      for (const landmark of landmarks) {
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = style.glow;
+      ctx.fillStyle = style.joint;
+      for (let index = 0; index < landmarks.length; index += 1) {
+        const landmark = landmarks[index];
         if (visibilityOf(landmark) < MIN_VISIBILITY) {
           continue;
         }
-        const p = screenPoint(landmark);
+        const p = points[index];
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 6.25, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.shadowBlur = 0;
     }
 
     async function startCamera() {
@@ -349,55 +520,73 @@ function getLiveStatusText(liveStatus, webStatus) {
     return 'Loading AI';
 }
 
-function StatChip({ label, value }) {
+function MiniMetric({ icon, label, value }) {
     return (
-      <View style={styles.statChip}>
-        <Text style={styles.statValue}>{value}</Text>
-        <Text style={styles.statLabel}>{label}</Text>
+      <View style={styles.miniMetric}>
+        <Ionicons name={icon} size={17} color="rgba(255,255,255,0.74)" />
+        <View style={styles.miniMetricCopy}>
+          <Text style={styles.miniMetricValue} numberOfLines={1}>{value}</Text>
+          <Text style={styles.miniMetricLabel}>{label}</Text>
+        </View>
       </View>
     );
 }
 
-function LiveTopHud({ exerciseName, difficulty, liveStatus, webStatus, perfStats }) {
+function LiveTopHud({ exerciseName, difficulty, liveStatus, webStatus, toneMeta }) {
     const statusText = getLiveStatusText(liveStatus, webStatus);
     const isLive = liveStatus === 'live';
+    const statusColor = webStatus === 'error' || liveStatus === 'error'
+        ? '#ef4444'
+        : isLive
+            ? '#22c55e'
+            : '#fbbf24';
     return (
       <View style={styles.topHud} pointerEvents="none">
         <View style={styles.sessionPill}>
-          <View style={[styles.statusDot, isLive ? styles.statusDotLive : styles.statusDotIdle]} />
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           <View>
             <Text style={styles.sessionStatus}>{statusText}</Text>
-            <Text style={styles.sessionName}>
+            <Text style={styles.sessionName} numberOfLines={1}>
               {(exerciseName || 'workout').toUpperCase()} - {difficulty || 'beginner'}
             </Text>
           </View>
         </View>
 
-        <View style={styles.fpsPill}>
-          <Text style={styles.fpsValue}>{perfStats.aiFps || 0}</Text>
-          <Text style={styles.fpsLabel}>AI FPS</Text>
+        <View style={[styles.formPill, { borderColor: toneMeta.border, backgroundColor: toneMeta.soft }]}>
+          <Ionicons name={toneMeta.icon} size={18} color={toneMeta.color} />
+          <Text style={[styles.formPillText, { color: toneMeta.color }]}>{toneMeta.label}</Text>
         </View>
       </View>
     );
 }
 
-function VoiceToggle({ enabled, onToggle }) {
+function CameraStatusOverlay({ webStatus }) {
+    if (webStatus === 'camera' || webStatus === 'ready') {
+        return <View pointerEvents="none" style={styles.cameraSpacer} />;
+    }
+    const isError = webStatus === 'error';
     return (
-      <Pressable style={styles.voiceToggle} onPress={onToggle}>
-        <Ionicons
-          name={enabled ? 'volume-high' : 'volume-mute'}
-          size={16}
-          color={enabled ? '#4ade80' : 'rgba(255,255,255,0.62)'}
-        />
-        <Text style={[styles.voiceToggleText, enabled ? styles.voiceToggleTextOn : null]}>
-          {enabled ? 'Voice on' : 'Voice off'}
-        </Text>
-      </Pressable>
+      <View pointerEvents="none" style={styles.cameraStatusWrap}>
+        <View style={styles.cameraStatusCard}>
+          <Ionicons
+            name={isError ? 'videocam-off-outline' : 'videocam-outline'}
+            size={22}
+            color={isError ? '#fca5a5' : '#bae6fd'}
+          />
+          <Text style={styles.cameraStatusTitle}>
+            {isError ? 'Camera unavailable' : 'Opening camera'}
+          </Text>
+          <Text style={styles.cameraStatusText}>
+            {isError ? 'Check camera permission and reload.' : 'Your live preview will appear here.'}
+          </Text>
+        </View>
+      </View>
     );
 }
 
 export function WorkoutLiveScreen() {
     const router = useRouter();
+    const webViewRef = useRef(null);
     const streamRef = useRef(null);
     const wsRef = useRef(null);
     const isFrameInFlightRef = useRef(false);
@@ -410,6 +599,7 @@ export function WorkoutLiveScreen() {
     const lastSpokenAtRef = useRef(0);
     const lastVoiceKeyRef = useRef(null);
     const isVoiceEnabledRef = useRef(true);
+    const formToneRef = useRef('idle');
     const metricsTimesRef = useRef([]);
     const uiTimesRef = useRef([]);
     const latestEndedSummaryRef = useRef(null);
@@ -418,8 +608,7 @@ export function WorkoutLiveScreen() {
     const [isDemoMode, setIsDemoMode] = useState(false);
     const [liveStatus, setLiveStatus] = useState('idle');
     const [webStatus, setWebStatus] = useState('loading');
-    const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
-    const [perfStats, setPerfStats] = useState({
+    const [, setPerfStats] = useState({
         aiFps: 0,
         serverFps: 0,
         uiFps: 0,
@@ -458,10 +647,12 @@ export function WorkoutLiveScreen() {
     const metricLabel = metrics.measurementLabel
         || currentSession?.config?.metricLabel
         || exerciseMeta.metricLabel;
-    const primaryValue = Math.round(Number(metrics.count ?? 0));
-    const confidencePct = Math.round((metrics.confidence ?? 0) * 100);
-    const progressPct = Math.round(metrics.progress * 100);
-    const progressColor = metrics.progress < 0.5 ? '#fbbf24' : '#4ade80';
+    const primaryValue = Number.isFinite(Number(metrics.count)) ? Math.round(Number(metrics.count)) : 0;
+    const progressPct = clampPercent(Number(metrics.progress ?? 0) * 100);
+    const targetValue = Number(currentSession?.config?.targetReps ?? 0);
+    const formTone = useMemo(() => getFormTone(metrics, liveStatus, webStatus), [metrics, liveStatus, webStatus]);
+    const toneMeta = FORM_TONE_META[formTone] ?? FORM_TONE_META.idle;
+    const progressColor = toneMeta.color;
     const shouldForceMock = process.env.EXPO_PUBLIC_USE_MOCK_STREAM === 'true';
 
     useEffect(() => {
@@ -477,11 +668,9 @@ export function WorkoutLiveScreen() {
     }, [metrics]);
 
     useEffect(() => {
-        isVoiceEnabledRef.current = isVoiceEnabled;
-        if (!isVoiceEnabled) {
-            Speech.stop();
-        }
-    }, [isVoiceEnabled]);
+        formToneRef.current = formTone;
+        webViewRef.current?.postMessage(JSON.stringify({ type: 'overlayTone', tone: formTone }));
+    }, [formTone]);
 
     useEffect(() => () => {
         streamRef.current?.stop();
@@ -789,6 +978,7 @@ export function WorkoutLiveScreen() {
     return (
       <View style={styles.root}>
         <WebView
+          ref={webViewRef}
           style={styles.webView}
           source={{ html: POSE_WEBVIEW_HTML, baseUrl: 'https://coachvision.local' }}
           originWhitelist={['*']}
@@ -799,6 +989,12 @@ export function WorkoutLiveScreen() {
           mediaCapturePermissionGrantType={Platform.OS === 'android' ? 'grant' : undefined}
           mixedContentMode="always"
           onMessage={handleWebViewMessage}
+          onLoadEnd={() => {
+              webViewRef.current?.postMessage(JSON.stringify({
+                  type: 'overlayTone',
+                  tone: formToneRef.current,
+              }));
+          }}
           onError={(event) => {
               setWebStatus('error');
               setLatestError(event.nativeEvent.description || 'Camera AI view failed.');
@@ -817,24 +1013,42 @@ export function WorkoutLiveScreen() {
             difficulty={difficulty}
             liveStatus={liveStatus}
             webStatus={webStatus}
-            perfStats={perfStats}
+            toneMeta={toneMeta}
           />
 
-          <View style={styles.bottomPanel}>
-              <View style={styles.repRow}>
+          <CameraStatusOverlay webStatus={webStatus} />
+
+          <View style={[styles.bottomPanel, { borderColor: toneMeta.border }]}>
+            {metrics.feedback ? (
+              <View style={[styles.feedbackCard, { backgroundColor: toneMeta.soft, borderColor: toneMeta.border }]}>
+                <Ionicons name={toneMeta.icon} size={18} color={toneMeta.color} />
+                <Text style={[styles.feedbackText, { color: feedbackTone(metrics.feedback) }]} numberOfLines={2}>
+                  {metrics.feedback}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.mainMetricRow}>
               <View style={styles.repBlock}>
                 <Text style={styles.repLabel}>{metricLabel}</Text>
                 <Text style={styles.repValue}>{primaryValue}</Text>
+                <Text style={styles.repTarget} numberOfLines={1}>
+                  {targetValue > 0 ? `Target ${targetValue} ${metricLabel.toLowerCase()}` : 'No target set'}
+                </Text>
               </View>
-              <View style={styles.motionBlock}>
-                <Text style={styles.motionState}>{metrics.state}</Text>
-                <Text style={styles.motionAngle}>{metrics.angle.toFixed(1)} deg</Text>
+              <View style={styles.sideMetrics}>
+                <MiniMetric icon="body-outline" label="Phase" value={String(metrics.state || 'idle')} />
+                <MiniMetric
+                  icon="analytics-outline"
+                  label="Angle"
+                  value={`${Number(metrics.angle ?? 0).toFixed(0)} deg`}
+                />
               </View>
             </View>
 
             <View style={styles.progressHeader}>
-              <Text style={styles.progressText}>{metrics.formName}</Text>
-              <Text style={styles.progressText}>{progressPct}%</Text>
+              <Text style={styles.progressText}>Motion quality</Text>
+              <Text style={[styles.progressText, { color: progressColor }]}>{progressPct}%</Text>
             </View>
             <View style={styles.progressTrack}>
               <View
@@ -845,25 +1059,7 @@ export function WorkoutLiveScreen() {
               />
             </View>
 
-            {metrics.feedback ? (
-              <Text style={[styles.feedbackText, { color: feedbackTone(metrics.feedback) }]}>
-                {metrics.feedback}
-              </Text>
-            ) : null}
-
-            {latestError ? <Text style={styles.errorText}>{latestError}</Text> : null}
-
-            <View style={styles.statsRow}>
-              <StatChip label="Detection" value={`${confidencePct}%`} />
-              <StatChip label="Server" value={perfStats.serverFps} />
-              <StatChip label="UI" value={perfStats.uiFps} />
-              <StatChip label="Latency" value={`${perfStats.latencyMs}ms`} />
-            </View>
-
-            <VoiceToggle
-              enabled={isVoiceEnabled}
-              onToggle={() => setIsVoiceEnabled((prev) => !prev)}
-            />
+            {latestError ? <Text style={styles.errorText} numberOfLines={2}>{latestError}</Text> : null}
 
             <View style={styles.controls}>
               <Pressable style={styles.controlButton} onPress={start}>
@@ -902,9 +1098,9 @@ const styles = StyleSheet.create({
     overlay: {
         flex: 1,
         justifyContent: 'space-between',
-        paddingHorizontal: 12,
-        paddingTop: 8,
-        paddingBottom: 10,
+        paddingHorizontal: 10,
+        paddingTop: 6,
+        paddingBottom: 6,
     },
     topHud: {
         flexDirection: 'row',
@@ -914,14 +1110,14 @@ const styles = StyleSheet.create({
     },
     sessionPill: {
         flex: 1,
-        minHeight: 54,
+        minHeight: 44,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        backgroundColor: 'rgba(3, 7, 18, 0.66)',
+        gap: 8,
+        backgroundColor: 'rgba(3, 7, 18, 0.58)',
         borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.18)',
     },
@@ -930,85 +1126,126 @@ const styles = StyleSheet.create({
         height: 10,
         borderRadius: 999,
     },
-    statusDotLive: { backgroundColor: '#22c55e' },
-    statusDotIdle: { backgroundColor: '#f59e0b' },
     sessionStatus: {
         color: '#fff',
-        fontSize: 15,
+        fontSize: 13,
         fontWeight: '800',
     },
     sessionName: {
         color: 'rgba(255,255,255,0.72)',
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: '700',
         marginTop: 1,
     },
-    fpsPill: {
-        width: 74,
-        minHeight: 54,
+    formPill: {
+        width: 94,
+        minHeight: 44,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(15, 23, 42, 0.72)',
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: 'rgba(74, 222, 128, 0.38)',
+        gap: 2,
     },
-    fpsValue: {
-        color: '#4ade80',
-        fontSize: 20,
-        fontWeight: '900',
-    },
-    fpsLabel: {
-        color: 'rgba(255,255,255,0.7)',
+    formPillText: {
         fontSize: 10,
-        fontWeight: '800',
+        lineHeight: 12,
+        fontWeight: '900',
+        textAlign: 'center',
     },
     bottomPanel: {
-        backgroundColor: 'rgba(3, 7, 18, 0.78)',
+        backgroundColor: 'rgba(3, 7, 18, 0.74)',
+        borderRadius: 8,
+        borderWidth: 1,
+        padding: 10,
+        gap: 8,
+    },
+    cameraSpacer: {
+        flex: 1,
+        minHeight: 80,
+    },
+    cameraStatusWrap: {
+        flex: 1,
+        minHeight: 120,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 18,
+    },
+    cameraStatusCard: {
+        maxWidth: 260,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.16)',
-        padding: 12,
-        gap: 10,
-    },
-    repRow: {
-        flexDirection: 'row',
+        backgroundColor: 'rgba(3, 7, 18, 0.48)',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
         alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
+        gap: 5,
+    },
+    cameraStatusTitle: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '900',
+    },
+    cameraStatusText: {
+        color: 'rgba(255,255,255,0.68)',
+        fontSize: 12,
+        fontWeight: '700',
+        textAlign: 'center',
+    },
+    mainMetricRow: {
+        flexDirection: 'row',
+        gap: 10,
+        alignItems: 'stretch',
     },
     repBlock: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        gap: 9,
+        flex: 1.2,
+        justifyContent: 'center',
+        minWidth: 0,
     },
     repLabel: {
         color: 'rgba(255,255,255,0.68)',
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '800',
-        marginBottom: 8,
     },
     repValue: {
         color: '#fff',
-        fontSize: 54,
-        lineHeight: 58,
+        fontSize: 50,
+        lineHeight: 54,
         fontWeight: '900',
     },
-    motionBlock: {
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        minWidth: 104,
+    repTarget: {
+        color: 'rgba(255,255,255,0.64)',
+        fontSize: 11,
+        fontWeight: '800',
     },
-    motionState: {
-        color: '#fbbf24',
-        fontSize: 16,
-        fontWeight: '900',
+    sideMetrics: {
+        width: 118,
+        gap: 6,
     },
-    motionAngle: {
-        color: 'rgba(255,255,255,0.7)',
+    miniMetric: {
+        flex: 1,
+        minHeight: 42,
+        borderRadius: 8,
+        backgroundColor: 'rgba(15, 23, 42, 0.72)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        paddingHorizontal: 8,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 7,
+    },
+    miniMetricCopy: { flex: 1, minWidth: 0 },
+    miniMetricValue: {
+        color: '#fff',
         fontSize: 12,
-        fontWeight: '700',
-        marginTop: 2,
+        fontWeight: '900',
+        textTransform: 'capitalize',
+    },
+    miniMetricLabel: {
+        color: 'rgba(255,255,255,0.56)',
+        fontSize: 9,
+        fontWeight: '800',
+        marginTop: 1,
     },
     progressHeader: {
         flexDirection: 'row',
@@ -1017,65 +1254,30 @@ const styles = StyleSheet.create({
     },
     progressText: {
         color: 'rgba(255,255,255,0.78)',
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '800',
     },
     progressTrack: {
-        height: 8,
+        height: 7,
         backgroundColor: 'rgba(148, 163, 184, 0.28)',
         borderRadius: 4,
         overflow: 'hidden',
     },
     progressFill: { height: '100%', borderRadius: 4 },
+    feedbackCard: {
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
     feedbackText: {
-        fontSize: 16,
-        lineHeight: 21,
-        fontWeight: '800',
-        textAlign: 'center',
-    },
-    statsRow: {
-        flexDirection: 'row',
-        gap: 6,
-    },
-    statChip: {
         flex: 1,
-        minHeight: 46,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(15, 23, 42, 0.7)',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-    },
-    statValue: {
-        color: '#fff',
-        fontSize: 15,
-        fontWeight: '900',
-    },
-    statLabel: {
-        color: 'rgba(255,255,255,0.58)',
-        fontSize: 10,
+        fontSize: 14,
+        lineHeight: 19,
         fontWeight: '800',
-        marginTop: 1,
-    },
-    voiceToggle: {
-        minHeight: 38,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 7,
-        backgroundColor: 'rgba(15, 23, 42, 0.62)',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-    },
-    voiceToggleText: {
-        color: 'rgba(255,255,255,0.62)',
-        fontSize: 12,
-        fontWeight: '800',
-    },
-    voiceToggleTextOn: {
-        color: '#4ade80',
     },
     demoStrip: {
         backgroundColor: 'rgba(251, 191, 36, 0.92)',

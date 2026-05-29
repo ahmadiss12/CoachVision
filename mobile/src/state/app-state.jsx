@@ -19,7 +19,12 @@ import {
   listSessions,
   startSession,
 } from '../services/api/sessions';
-import { getCurrentUser, updateCurrentUser } from '../services/api/users';
+import {
+  createBodyMetricEntry as requestCreateBodyMetricEntry,
+  getCurrentUser,
+  listBodyMetricEntries,
+  updateCurrentUser,
+} from '../services/api/users';
 const defaultMetrics = {
     count: 0,
     state: 'idle',
@@ -83,6 +88,15 @@ function summaryFromSession(session) {
         notes: '',
         feedback: null,
         fatiguePrediction: null,
+    };
+}
+
+function normalizeBodyMetricEntry(item) {
+    return {
+        id: String(item.id ?? `${item.date ?? item.entry_date}-${Date.now()}`),
+        date: item.date ?? item.entry_date ?? new Date().toISOString().slice(0, 10),
+        weightKg: Number(item.weightKg ?? item.weight_kg ?? 0),
+        bodyFatPercent: Number(item.bodyFatPercent ?? item.body_fat_percent ?? 0),
     };
 }
 
@@ -202,6 +216,26 @@ export function AppStateProvider({ children }) {
         }
     };
 
+    const loadBodyMetrics = async () => {
+        try {
+            const items = await listBodyMetricEntries();
+            const metrics = items.map(normalizeBodyMetricEntry);
+            setBodyMetrics(metrics);
+            return metrics;
+        } catch (error) {
+            if (error?.status === 401) {
+                const refreshed = await ensureFreshAccessToken();
+                if (refreshed) {
+                    const items = await listBodyMetricEntries();
+                    const metrics = items.map(normalizeBodyMetricEntry);
+                    setBodyMetrics(metrics);
+                    return metrics;
+                }
+            }
+            return [];
+        }
+    };
+
     const login = async (input, optionalPassword) => {
         const email = typeof input === 'string' ? input : input?.email;
         const password = typeof input === 'string' ? optionalPassword : input?.password;
@@ -216,6 +250,7 @@ export function AppStateProvider({ children }) {
             resetUserScopedState();
             const user = await loadCurrentUser();
             await loadHistory();
+            await loadBodyMetrics();
             return user;
         } catch (error) {
             setLatestError(error?.message || 'Login failed. Please try again.');
@@ -244,6 +279,7 @@ export function AppStateProvider({ children }) {
             resetUserScopedState();
             const user = await loadCurrentUser();
             await loadHistory();
+            await loadBodyMetrics();
             return user;
         } catch (error) {
             setLatestError(error?.message || 'Registration failed. Please try again.');
@@ -306,14 +342,18 @@ export function AppStateProvider({ children }) {
         setBodyMetrics((prev) => {
             if (prev.length > 0)
                 return prev;
-            return [
-                {
-                    id: `${Date.now()}`,
-                    date: new Date().toISOString().slice(0, 10),
-                    weightKg: safeWeightKg,
-                    bodyFatPercent: safeBodyFatPercent,
-                },
-            ];
+            const initialMetric = {
+                id: `${Date.now()}`,
+                date: new Date().toISOString().slice(0, 10),
+                weightKg: safeWeightKg,
+                bodyFatPercent: safeBodyFatPercent,
+            };
+            requestCreateBodyMetricEntry({
+                date: initialMetric.date,
+                weightKg: safeWeightKg,
+                bodyFatPercent: safeBodyFatPercent,
+            }).catch(() => undefined);
+            return [initialMetric];
         });
         return nextProfile;
     };
@@ -341,13 +381,15 @@ export function AppStateProvider({ children }) {
         const safeWeight = payload.weightKg > 0 ? payload.weightKg : profile?.weightKg ?? 70;
         const safeBodyFat = payload.bodyFatPercent >= 0 ? payload.bodyFatPercent : profile?.bodyFatPercent ?? 20;
         const date = payload.date || new Date().toISOString().slice(0, 10);
+        const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const optimisticEntry = {
+            id: tempId,
+            date,
+            weightKg: safeWeight,
+            bodyFatPercent: safeBodyFat,
+        };
         setBodyMetrics((prev) => [
-            {
-                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                date,
-                weightKg: safeWeight,
-                bodyFatPercent: safeBodyFat,
-            },
+            optimisticEntry,
             ...prev,
         ]);
         setProfile((prev) => {
@@ -362,6 +404,18 @@ export function AppStateProvider({ children }) {
                 bmi: Number.isFinite(bmi) ? Number(bmi.toFixed(1)) : prev.bmi,
             };
         });
+        requestCreateBodyMetricEntry({
+            date,
+            weightKg: safeWeight,
+            bodyFatPercent: safeBodyFat,
+        })
+            .then((saved) => {
+                const savedEntry = normalizeBodyMetricEntry(saved);
+                setBodyMetrics((prev) => prev.map((item) => (item.id === tempId ? savedEntry : item)));
+            })
+            .catch((error) => {
+                setLatestError(error?.message || 'Body entry saved locally but could not sync.');
+            });
     };
     const clearError = () => setLatestError(null);
     const toggleThemeMode = () => {
@@ -623,6 +677,7 @@ export function AppStateProvider({ children }) {
         logout,
         loadCurrentUser,
         loadHistory,
+        loadBodyMetrics,
         loadExercises,
         predictFatigue,
         loadFatigueHistory,

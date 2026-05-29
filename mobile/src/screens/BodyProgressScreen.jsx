@@ -1,16 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/src/components/Card';
 import { Input } from '@/src/components/Input';
+import { MetricTile } from '@/src/components/MetricTile';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
+
 function toNumber(text) {
     const value = Number(text);
     return Number.isFinite(value) ? value : 0;
 }
+
 export function BodyProgressScreen() {
-    const { bodyMetrics, profile, addBodyMetricEntry, themeMode } = useAppState();
+    const { bodyMetrics, profile, addBodyMetricEntry, loadBodyMetrics, themeMode } = useAppState();
     const colors = getThemeColors(themeMode);
     const [weightKg, setWeightKg] = useState(profile ? String(profile.weightKg) : '');
     const [bodyFatPercent, setBodyFatPercent] = useState(profile ? String(profile.bodyFatPercent) : '');
@@ -27,8 +32,6 @@ export function BodyProgressScreen() {
             return 0;
         return Number((latest.bodyFatPercent - oldest.bodyFatPercent).toFixed(1));
     }, [latest, oldest, bodyMetrics.length]);
-    const weightColor = deltaWeight < 0 ? colors.success : deltaWeight > 0 ? colors.danger : colors.textSecondary;
-    const bodyFatColor = deltaBodyFat < 0 ? colors.success : deltaBodyFat > 0 ? colors.danger : colors.textSecondary;
     const addEntry = () => {
         addBodyMetricEntry({
             weightKg: toNumber(weightKg),
@@ -36,100 +39,139 @@ export function BodyProgressScreen() {
             date: date || undefined,
         });
     };
+    useEffect(() => {
+        loadBodyMetrics();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>Body Progress</Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Log weight and body fat to track your body changes.
-        </Text>
+        <ScreenHeader icon="analytics-outline" title="Body progress" subtitle="Weight and body composition check-ins." />
 
         <Card style={styles.formCard}>
-          <Input label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate}/>
-          <Input label="Weight (kg)" value={weightKg} keyboardType="numeric" placeholder="e.g. 72" onChangeText={setWeightKg}/>
-          <Input label="Body fat (%)" value={bodyFatPercent} keyboardType="numeric" placeholder="e.g. 18" onChangeText={setBodyFatPercent}/>
-          <PrimaryButton title="Add entry" onPress={addEntry}/>
+          <Input icon="calendar-outline" label="Date" value={date} onChangeText={setDate}/>
+          <Input icon="scale-outline" label="Weight (kg)" value={weightKg} keyboardType="numeric" placeholder="e.g. 72" onChangeText={setWeightKg}/>
+          <Input icon="water-outline" label="Body fat (%)" value={bodyFatPercent} keyboardType="numeric" placeholder="e.g. 18" onChangeText={setBodyFatPercent}/>
+          <PrimaryButton icon="add-circle-outline" title="Add entry" onPress={addEntry}/>
         </Card>
 
-        <Card style={styles.statsCard}>
-          <Text style={[styles.statsTitle, { color: colors.textPrimary }]}>Change summary</Text>
-          <Text style={[styles.statsText, { color: weightColor }]}>
-            Weight change: {deltaWeight >= 0 ? '+' : ''}
-            {deltaWeight} kg
-          </Text>
-          <Text style={[styles.statsText, { color: bodyFatColor }]}>
-            Body fat change: {deltaBodyFat >= 0 ? '+' : ''}{deltaBodyFat}%
-          </Text>
-        </Card>
+        <View style={styles.summaryGrid}>
+          <MetricTile
+            icon={deltaWeight < 0 ? 'trending-down-outline' : 'trending-up-outline'}
+            label="Weight change"
+            value={`${deltaWeight >= 0 ? '+' : ''}${deltaWeight} kg`}
+            tone={deltaWeight < 0 ? 'success' : deltaWeight > 0 ? 'danger' : 'brand'}
+          />
+          <MetricTile
+            icon={deltaBodyFat < 0 ? 'trending-down-outline' : 'trending-up-outline'}
+            label="Body fat change"
+            value={`${deltaBodyFat >= 0 ? '+' : ''}${deltaBodyFat}%`}
+            tone={deltaBodyFat < 0 ? 'success' : deltaBodyFat > 0 ? 'danger' : 'brand'}
+          />
+        </View>
 
-        <Text style={[styles.listTitle, { color: colors.textSecondary }]}>History</Text>
-        {bodyMetrics.length === 0 ? (<Card>
+        <View style={styles.listHeader}>
+          <Ionicons name="list-outline" size={18} color={colors.brandAlt} />
+          <Text style={[styles.listTitle, { color: colors.textPrimary }]}>History</Text>
+        </View>
+        {bodyMetrics.length === 0 ? (<Card style={styles.emptyCard}>
+            <Ionicons name="clipboard-outline" size={28} color={colors.textSecondary} />
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               No entries yet. Add your first check-in above.
             </Text>
-          </Card>) : (<FlatList data={bodyMetrics} keyExtractor={(item) => item.id} contentContainerStyle={styles.listContent} renderItem={({ item, index }) => {
+          </Card>) : (<FlatList
+            data={bodyMetrics}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item, index }) => {
                 const previous = bodyMetrics[index + 1];
                 const deltaWeightRow = previous ? Number((item.weightKg - previous.weightKg).toFixed(1)) : null;
                 const deltaBodyFatRow = previous
                     ? Number((item.bodyFatPercent - previous.bodyFatPercent).toFixed(1))
                     : null;
-                const deltaWeightRowColor = deltaWeightRow === null
-                    ? colors.textSecondary
-                    : deltaWeightRow < 0
-                        ? colors.success
-                        : deltaWeightRow > 0
-                            ? colors.danger
-                            : colors.textSecondary;
-                const deltaBodyFatRowColor = deltaBodyFatRow === null
-                    ? colors.textSecondary
-                    : deltaBodyFatRow < 0
-                        ? colors.success
-                        : deltaBodyFatRow > 0
-                            ? colors.danger
-                            : colors.textSecondary;
-                return (<Card style={[styles.itemCard, { borderColor: colors.border }]}>
-                  <Text style={[styles.itemDate, { color: colors.textPrimary }]}>{item.date}</Text>
-                  <Text style={[styles.itemMeta, { color: colors.textSecondary }]}>
-                    {item.weightKg} kg • {item.bodyFatPercent}%
-                  </Text>
-                  <View style={styles.deltaRow}>
-                    <Text style={[styles.deltaBadge, { color: deltaWeightRowColor, borderColor: deltaWeightRowColor }]}>
-                      {deltaWeightRow === null
-                        ? 'Weight Δ --'
-                        : `Weight Δ ${deltaWeightRow >= 0 ? '+' : ''}${deltaWeightRow} kg`}
-                    </Text>
-                    <Text style={[styles.deltaBadge, { color: deltaBodyFatRowColor, borderColor: deltaBodyFatRowColor }]}>
-                      {deltaBodyFatRow === null
-                        ? 'Body Fat Δ --'
-                        : `Body Fat Δ ${deltaBodyFatRow >= 0 ? '+' : ''}${deltaBodyFatRow}%`}
-                    </Text>
-                  </View>
-                </Card>);
-            }}/>)}
+                return (<ProgressItem
+                  item={item}
+                  deltaWeightRow={deltaWeightRow}
+                  deltaBodyFatRow={deltaBodyFatRow}
+                  colors={colors}
+                />);
+            }}
+          />)}
       </View>
     </SafeAreaView>);
 }
+
+function ProgressItem({ item, deltaWeightRow, deltaBodyFatRow, colors }) {
+    const weightColor = deltaWeightRow === null
+        ? colors.textSecondary
+        : deltaWeightRow < 0
+            ? colors.success
+            : deltaWeightRow > 0
+                ? colors.danger
+                : colors.textSecondary;
+    const bodyFatColor = deltaBodyFatRow === null
+        ? colors.textSecondary
+        : deltaBodyFatRow < 0
+            ? colors.success
+            : deltaBodyFatRow > 0
+                ? colors.danger
+                : colors.textSecondary;
+    return (
+      <Card style={styles.itemCard}>
+        <View style={styles.itemHeader}>
+          <View style={[styles.itemIcon, { backgroundColor: colors.surfaceAlt }]}>
+            <Ionicons name="calendar-outline" size={18} color={colors.brandAlt} />
+          </View>
+          <View style={styles.itemCopy}>
+            <Text style={[styles.itemDate, { color: colors.textPrimary }]}>{item.date}</Text>
+            <Text style={[styles.itemMeta, { color: colors.textSecondary }]}>
+              {item.weightKg} kg | {item.bodyFatPercent}%
+            </Text>
+          </View>
+        </View>
+        <View style={styles.deltaRow}>
+          <DeltaBadge color={weightColor} text={deltaWeightRow === null ? 'Weight --' : `Weight ${deltaWeightRow >= 0 ? '+' : ''}${deltaWeightRow} kg`} />
+          <DeltaBadge color={bodyFatColor} text={deltaBodyFatRow === null ? 'Body fat --' : `Body fat ${deltaBodyFatRow >= 0 ? '+' : ''}${deltaBodyFatRow}%`} />
+        </View>
+      </Card>
+    );
+}
+
+function DeltaBadge({ color, text }) {
+    return (
+      <Text style={[styles.deltaBadge, { color, borderColor: color }]}>{text}</Text>
+    );
+}
+
 const styles = StyleSheet.create({
     safe: { flex: 1 },
     container: { flex: 1, padding: 20, gap: 12 },
-    title: { fontSize: 28, fontWeight: '700', marginTop: 10 },
-    subtitle: { marginBottom: 6 },
-    formCard: { gap: 10 },
-    statsCard: { gap: 6 },
-    statsTitle: { fontWeight: '700', fontSize: 16 },
-    statsText: {},
-    listTitle: { fontSize: 12, textTransform: 'uppercase', marginTop: 2 },
-    emptyText: {},
+    formCard: { gap: 12 },
+    summaryGrid: { flexDirection: 'row', gap: 10 },
+    listHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+    listTitle: { fontSize: 17, fontWeight: '900' },
+    emptyCard: { alignItems: 'center', gap: 10 },
+    emptyText: { textAlign: 'center', lineHeight: 20 },
     listContent: { gap: 8, paddingBottom: 24 },
-    itemCard: { gap: 4 },
-    itemDate: { fontWeight: '700' },
-    itemMeta: {},
-    deltaRow: { flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' },
+    itemCard: { gap: 10 },
+    itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    itemIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    itemCopy: { flex: 1, minWidth: 0 },
+    itemDate: { fontWeight: '900' },
+    itemMeta: { marginTop: 2, fontWeight: '700' },
+    deltaRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
     deltaBadge: {
         borderWidth: 1,
-        borderRadius: 999,
+        borderRadius: 8,
         paddingHorizontal: 8,
-        paddingVertical: 4,
+        paddingVertical: 5,
         fontSize: 12,
-        fontWeight: '600',
+        fontWeight: '900',
     },
 });

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { getExerciseMetadata, supportsExternalLoad } from '../constants/exercise-metadata';
 import {
     buildSuggestedRepTarget,
@@ -27,9 +28,9 @@ const exercises = [
     { id: 'wall_sit', label: 'Wall sit', icon: 'body-outline', image: require('@/images/squat.jpg') },
 ];
 const difficulties = [
-    { id: 'beginner', label: 'Beginner', hint: 'Lighter load, more rest' },
-    { id: 'intermediate', label: 'Intermediate', hint: 'Balanced challenge' },
-    { id: 'advanced', label: 'Advanced', hint: 'Harder thresholds' },
+    { id: 'beginner', label: 'Beginner', hint: 'Lighter load, more rest', icon: 'leaf-outline' },
+    { id: 'intermediate', label: 'Intermediate', hint: 'Balanced challenge', icon: 'speedometer-outline' },
+    { id: 'advanced', label: 'Advanced', hint: 'Harder thresholds', icon: 'flame-outline' },
 ];
 const GRID_GAP = 12;
 const H_PADDING = 20;
@@ -47,11 +48,11 @@ function ReadinessStepper({ label, value, onDecrease, onIncrease, colors }) {
       <Text style={[styles.stepperLabel, { color: colors.textSecondary }]}>{label}</Text>
       <View style={styles.stepperControls}>
         <Pressable onPress={onDecrease} style={[styles.stepperButton, { borderColor: colors.border }]}>
-          <Text style={[styles.stepperButtonText, { color: colors.textPrimary }]}>-</Text>
+          <Ionicons name="remove" size={18} color={colors.textPrimary} />
         </Pressable>
         <Text style={[styles.stepperValue, { color: colors.textPrimary }]}>{value}</Text>
         <Pressable onPress={onIncrease} style={[styles.stepperButton, { borderColor: colors.border }]}>
-          <Text style={[styles.stepperButtonText, { color: colors.textPrimary }]}>+</Text>
+          <Ionicons name="add" size={18} color={colors.textPrimary} />
         </Pressable>
       </View>
     </View>);
@@ -80,10 +81,15 @@ export function WorkoutSetupScreen() {
     const [stress, setStress] = useState(2);
     const [externalLoadKg, setExternalLoadKg] = useState(0);
     const [isCheckingReadiness, setIsCheckingReadiness] = useState(false);
+    const readinessRequestIdRef = useRef(0);
+    const targetRepsRef = useRef(targetReps);
     useEffect(() => {
         loadExercises();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    useEffect(() => {
+        targetRepsRef.current = targetReps;
+    }, [targetReps]);
     const resolvedExercises = useMemo(() => {
         if (!availableExercises?.length) {
             return exercises;
@@ -163,10 +169,12 @@ export function WorkoutSetupScreen() {
     const metricName = selectedMeta.measurementType === 'hold' ? 'seconds' : 'reps';
     const targetStep = selectedMeta.measurementType === 'hold' ? 5 : 1;
     const maxTarget = selectedMeta.measurementType === 'hold' ? 600 : 200;
-    const refreshReadiness = async (exerciseId = selectedExercise, fallbackTargetOverride = null) => {
+    const refreshReadiness = useCallback(async (exerciseId = selectedExercise, fallbackTargetOverride = null) => {
         if (!exerciseId) {
             return;
         }
+        const requestId = readinessRequestIdRef.current + 1;
+        readinessRequestIdRef.current = requestId;
         const meta = getExerciseMetadata(exerciseId);
         const fallbackTarget = meta.measurementType === 'hold' ? 30 : 10;
         const loadKg = supportsExternalLoad(exerciseId) ? externalLoadKg : 0;
@@ -182,19 +190,57 @@ export function WorkoutSetupScreen() {
             },
             recentWindowDays: 14,
         });
+        if (requestId !== readinessRequestIdRef.current) {
+            return;
+        }
         await loadFatigueHistory(exerciseId);
+        if (requestId !== readinessRequestIdRef.current) {
+            return;
+        }
         if (prediction) {
             const lastSession = findLatestSessionForExercise(history, exerciseId);
             const plan = buildSuggestedRepTarget({
                 prediction,
                 lastSession,
-                fallbackReps: fallbackTargetOverride ?? targetReps ?? fallbackTarget,
+                fallbackReps: fallbackTargetOverride ?? fallbackTarget,
                 exerciseId,
             });
             setTargetReps(plan.targetReps);
         }
         setIsCheckingReadiness(false);
-    };
+    }, [
+        externalLoadKg,
+        history,
+        loadFatigueHistory,
+        muscleSoreness,
+        predictFatigue,
+        profile?.weightKg,
+        selectedExercise,
+        sleepHours,
+        stress,
+    ]);
+
+    useEffect(() => {
+        if (!selectedExercise) {
+            return undefined;
+        }
+        const meta = getExerciseMetadata(selectedExercise);
+        const fallbackTarget = meta.measurementType === 'hold' ? 30 : 10;
+        const timer = setTimeout(() => {
+            refreshReadiness(selectedExercise, targetRepsRef.current || fallbackTarget);
+        }, 450);
+        return () => clearTimeout(timer);
+        // Recalculate only when user-facing readiness inputs change.
+        // Context function identities change after results arrive, which would loop the check.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        externalLoadKg,
+        muscleSoreness,
+        selectedExercise,
+        sleepHours,
+        stress,
+    ]);
+
     const selectExercise = (exerciseId) => {
         if (!supportsExternalLoad(exerciseId)) {
             setExternalLoadKg(0);
@@ -203,16 +249,16 @@ export function WorkoutSetupScreen() {
         const defaultTarget = meta.measurementType === 'hold' ? 30 : 10;
         setTargetReps(defaultTarget);
         setSelectedExercise(exerciseId);
-        refreshReadiness(exerciseId, defaultTarget);
     };
     const exerciseLabel = resolvedExercises.find((e) => e.id === selectedExercise)?.label ?? '';
     const selectedSupportsLoad = supportsExternalLoad(selectedExercise);
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       {!selectedExercise ? (<ScrollView contentContainerStyle={[styles.exerciseRoot, { paddingHorizontal: H_PADDING, paddingBottom: H_PADDING }]} showsVerticalScrollIndicator={false}>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Workout setup</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Tap a workout to continue
-          </Text>
+          <ScreenHeader
+            icon="barbell-outline"
+            title="Workout setup"
+            subtitle="Choose an exercise to tune your target."
+          />
 
           <View style={[styles.gridOuter, { gap: GRID_GAP, marginTop: 12 }]}>
             {exerciseRows.map((row, rowIndex) => (<View key={rowIndex} style={[styles.gridRow, { gap: GRID_GAP }]}>
@@ -226,6 +272,9 @@ export function WorkoutSetupScreen() {
                     ]} onPress={() => selectExercise(item.id)}>
                     <View style={[styles.cardImageWrap, { backgroundColor: colors.surfaceAlt }]}>
                       <Image source={item.image} style={styles.cardImage} contentFit="cover"/>
+                      <View style={[styles.exerciseIconBadge, { backgroundColor: colors.surface }]}>
+                        <Ionicons name={item.icon} size={18} color={colors.brandAlt} />
+                      </View>
                     </View>
                     <Text style={[styles.cardLabel, { color: colors.textPrimary }]} numberOfLines={2}>
                       {item.label}
@@ -240,15 +289,22 @@ export function WorkoutSetupScreen() {
             <Text style={[styles.backText, { color: colors.brandAlt }]}>Change workout</Text>
           </Pressable>
 
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Choose intensity</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{exerciseLabel}</Text>
+          <ScreenHeader
+            icon="pulse-outline"
+            title="Choose intensity"
+            subtitle={exerciseLabel}
+          />
 
           <View style={[styles.readinessCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.readinessHeader}>
               <View>
                 <Text style={[styles.panelTitle, { color: colors.textPrimary }]}>Fatigue check</Text>
                 <Text style={[styles.panelHint, { color: colors.textSecondary }]}>
-                  {activeFatiguePrediction ? fatigueLabel(activeFatiguePrediction.fatigueLevel) : 'No readiness check yet'}
+                  {isCheckingReadiness
+                    ? 'Updating automatically...'
+                    : activeFatiguePrediction
+                        ? fatigueLabel(activeFatiguePrediction.fatigueLevel)
+                        : 'Auto check starts after selection'}
                 </Text>
               </View>
               <View style={[styles.scorePill, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
@@ -346,12 +402,12 @@ export function WorkoutSetupScreen() {
               />
             </View>
 
-            <PrimaryButton
-              title={isCheckingReadiness ? 'Checking readiness...' : `Refresh ${selectedMeta.measurementType === 'hold' ? 'hold' : 'fatigue'} check`}
-              variant="secondary"
-              onPress={() => refreshReadiness()}
-              disabled={isCheckingReadiness}
-            />
+            <View style={[styles.autoCheckRow, { borderColor: colors.border }]}>
+              <Ionicons name={isCheckingReadiness ? 'sync-outline' : 'checkmark-circle-outline'} size={17} color={isCheckingReadiness ? colors.warning : colors.success} />
+              <Text style={[styles.autoCheckText, { color: colors.textSecondary }]}>
+                {isCheckingReadiness ? 'Recalculating from your latest inputs' : 'Fatigue check updates automatically'}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.intensityList}>
@@ -365,20 +421,28 @@ export function WorkoutSetupScreen() {
                             borderWidth: isActive ? 2 : 1,
                         },
                     ]}>
-                  <Text style={[
-                        styles.intensityTitle,
-                        { color: isActive ? colors.brandAlt : colors.textPrimary },
-                    ]}>
-                    {item.label}
-                  </Text>
-                  <Text style={[styles.intensityHint, { color: colors.textSecondary }]}>
-                    {item.hint}
-                  </Text>
+                  <View style={styles.intensityHeader}>
+                    <View style={[styles.intensityIcon, { backgroundColor: colors.surfaceAlt }]}>
+                      <Ionicons name={item.icon} size={19} color={isActive ? colors.brandAlt : colors.textSecondary} />
+                    </View>
+                    <View style={styles.intensityCopy}>
+                      <Text style={[
+                            styles.intensityTitle,
+                            { color: isActive ? colors.brandAlt : colors.textPrimary },
+                        ]}>
+                        {item.label}
+                      </Text>
+                      <Text style={[styles.intensityHint, { color: colors.textSecondary }]}>
+                        {item.hint}
+                      </Text>
+                    </View>
+                    {isActive ? <Ionicons name="checkmark-circle" size={20} color={colors.brandAlt} /> : null}
+                  </View>
                 </Pressable>);
             })}
           </View>
 
-          <PrimaryButton title="Start live session" onPress={begin}/>
+          <PrimaryButton icon="videocam-outline" title="Start live session" onPress={begin}/>
           {latestError ? <Text style={[styles.error, { color: colors.danger }]}>{latestError}</Text> : null}
         </ScrollView>)}
     </SafeAreaView>);
@@ -387,8 +451,6 @@ const styles = StyleSheet.create({
     safe: { flex: 1 },
     exerciseRoot: { flexGrow: 1 },
     scrollContent: { padding: 20, paddingBottom: 32, gap: 16 },
-    title: { fontSize: 28, fontWeight: '700', marginTop: 4 },
-    subtitle: { fontSize: 15, marginBottom: 4 },
     gridOuter: {},
     gridRow: {
         flexDirection: 'row',
@@ -397,7 +459,7 @@ const styles = StyleSheet.create({
         flex: 1,
         minWidth: 0,
         minHeight: 172,
-        borderRadius: 16,
+        borderRadius: 8,
         borderWidth: 1,
         padding: 10,
         overflow: 'hidden',
@@ -406,12 +468,22 @@ const styles = StyleSheet.create({
     cardImageWrap: {
         width: '100%',
         aspectRatio: 1.18,
-        borderRadius: 14,
+        borderRadius: 8,
         overflow: 'hidden',
     },
     cardImage: {
         width: '100%',
         height: '100%',
+    },
+    exerciseIconBadge: {
+        position: 'absolute',
+        right: 8,
+        top: 8,
+        width: 34,
+        height: 34,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     cardLabel: {
         fontSize: 16,
@@ -428,7 +500,7 @@ const styles = StyleSheet.create({
     },
     backText: { fontSize: 16, fontWeight: '600' },
     readinessCard: {
-        borderRadius: 14,
+        borderRadius: 8,
         borderWidth: 1,
         padding: 14,
         gap: 12,
@@ -473,7 +545,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    stepperButtonText: { fontSize: 18, fontWeight: '900', lineHeight: 20 },
     stepperValue: {
         width: 72,
         textAlign: 'center',
@@ -501,12 +572,35 @@ const styles = StyleSheet.create({
     targetCopy: { gap: 2 },
     targetTitle: { fontSize: 15, fontWeight: '800' },
     targetHint: { fontSize: 12, lineHeight: 17 },
+    autoCheckRow: {
+        minHeight: 38,
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    autoCheckText: {
+        flex: 1,
+        fontSize: 12,
+        fontWeight: '800',
+    },
     intensityList: { gap: 10 },
     intensityCard: {
-        borderRadius: 14,
+        borderRadius: 8,
         padding: 16,
         gap: 4,
     },
+    intensityHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    intensityIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    intensityCopy: { flex: 1, minWidth: 0 },
     intensityTitle: { fontSize: 17, fontWeight: '700' },
     intensityHint: { fontSize: 13 },
     error: { fontSize: 13, marginTop: 6 },

@@ -3,14 +3,19 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/src/components/Card';
+import { MetricTile } from '@/src/components/MetricTile';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
+import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { useAppState } from '@/src/state/app-state';
-import { colors } from '@/src/theme/colors';
+import { getThemeColors } from '@/src/theme/colors';
+
 export function ProfileScreen() {
     const router = useRouter();
-    const { authUser, profile, updateProfileAvatar } = useAppState();
+    const { authUser, profile, updateProfileAvatar, themeMode } = useAppState();
+    const colors = getThemeColors(themeMode);
+    const displayName = authUser?.email?.split('@')[0] ?? 'Athlete';
     const handleUploadAvatar = async () => {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
@@ -27,79 +32,95 @@ export function ProfileScreen() {
             updateProfileAvatar(result.assets[0].uri);
         }
     };
-    return (<SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Profile</Text>
+    return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <ScreenHeader icon="person-circle-outline" title="Profile" subtitle="Body data and account identity." />
 
-        <View style={styles.avatarSection}>
-          {profile?.avatarUri ? (<Image source={{ uri: profile.avatarUri }} style={styles.avatar} contentFit="cover"/>) : (<View style={[styles.avatar, styles.avatarFallback]}>
-              <Ionicons name="person" size={54} color={colors.textSecondary}/>
-            </View>)}
-
-          <Text style={styles.userName}>{authUser?.email?.split('@')[0] ?? 'Athlete'}</Text>
-          <Text style={styles.userEmail}>{authUser?.email ?? 'No email'}</Text>
-
-          <Pressable style={styles.editAvatarButton} onPress={handleUploadAvatar}>
-            <Ionicons name="camera" size={16} color={colors.textPrimary}/>
-            <Text style={styles.editAvatarText}>Edit photo</Text>
+        <Card style={styles.identityCard}>
+          <Pressable style={styles.avatarButton} onPress={handleUploadAvatar}>
+            {profile?.avatarUri ? (<Image source={{ uri: profile.avatarUri }} style={[styles.avatar, { borderColor: colors.border }]} contentFit="cover"/>) : (<View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <Ionicons name="person" size={54} color={colors.textSecondary}/>
+              </View>)}
+            <View style={[styles.cameraBadge, { backgroundColor: colors.brand, borderColor: colors.surface }]}>
+              <Ionicons name="camera" size={15} color="#FFFFFF"/>
+            </View>
           </Pressable>
+          <View style={styles.identityCopy}>
+            <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
+            <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{authUser?.email ?? 'No email'}</Text>
+          </View>
+        </Card>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.metricRow}>
+            <MetricTile icon="resize-outline" label="Height" value={profile ? `${profile.heightCm} cm` : '--'} tone="info" />
+            <MetricTile icon="scale-outline" label="Weight" value={profile ? `${profile.weightKg} kg` : '--'} tone="brand" />
+          </View>
+          <View style={styles.metricRow}>
+            <MetricTile icon="water-outline" label="Body fat" value={profile ? `${profile.bodyFatPercent}%` : '--'} tone="warning" />
+            <MetricTile icon="speedometer-outline" label="BMI" value={profile ? `${profile.bmi}` : '--'} tone="success" />
+          </View>
         </View>
 
         <Card style={styles.infoCard}>
-          <InfoRow label="Date of birth" value={profile?.dateOfBirth ?? '--'}/>
-          <InfoRow label="Age" value={profile ? `${profile.age}` : '--'}/>
-          <InfoRow label="Height" value={profile ? `${profile.heightCm} cm` : '--'}/>
-          <InfoRow label="Weight" value={profile ? `${profile.weightKg} kg` : '--'}/>
-          <InfoRow label="Body fat" value={profile ? `${profile.bodyFatPercent}%` : '--'}/>
-          <InfoRow label="BMI" value={profile ? `${profile.bmi}` : '--'}/>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Profile details</Text>
+          <InfoRow icon="calendar-outline" label="Date of birth" value={profile?.dateOfBirth ?? '--'} colors={colors}/>
+          <InfoRow icon="hourglass-outline" label="Age" value={profile ? `${profile.age}` : '--'} colors={colors}/>
         </Card>
 
-        <PrimaryButton title="Edit body data" variant="secondary" onPress={() => router.push('/(app)/profile')}/>
-        <PrimaryButton title="Track body progress" onPress={() => router.push('/(app)/body-progress')}/>
-      </View>
+        <View style={styles.actions}>
+          <PrimaryButton icon="create-outline" title="Edit body data" variant="secondary" onPress={() => router.push('/(app)/profile-edit')} style={styles.actionButton}/>
+          <PrimaryButton icon="analytics-outline" title="Track progress" onPress={() => router.push('/(app)/body-progress')} style={styles.actionButton}/>
+        </View>
+      </ScrollView>
     </SafeAreaView>);
 }
-function InfoRow({ label, value }) {
-    return (<View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+
+function InfoRow({ icon, label, value, colors }) {
+    return (<View style={[styles.row, { borderBottomColor: colors.border }]}>
+      <Ionicons name={icon} size={18} color={colors.brandAlt} />
+      <Text style={[styles.rowLabel, { color: colors.textSecondary }]}>{label}</Text>
+      <Text style={[styles.rowValue, { color: colors.textPrimary }]}>{value}</Text>
     </View>);
 }
+
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
-    container: { flex: 1, padding: 20, gap: 14 },
-    title: { color: colors.textPrimary, fontSize: 28, fontWeight: '700', marginTop: 10 },
-    avatarSection: { alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 8 },
-    avatar: { width: 120, height: 120, borderRadius: 60, borderWidth: 1, borderColor: colors.border },
+    safe: { flex: 1 },
+    container: { padding: 20, gap: 14, paddingBottom: 110 },
+    identityCard: { alignItems: 'center', gap: 12 },
+    avatarButton: { position: 'relative' },
+    avatar: { width: 118, height: 118, borderRadius: 59, borderWidth: 1 },
     avatarFallback: {
-        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    userName: { color: colors.textPrimary, fontWeight: '700', fontSize: 20, textTransform: 'capitalize' },
-    userEmail: { color: colors.textSecondary, fontSize: 13 },
-    editAvatarButton: {
-        marginTop: 4,
-        flexDirection: 'row',
-        gap: 6,
+    cameraBadge: {
+        position: 'absolute',
+        right: 3,
+        bottom: 6,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        borderWidth: 2,
         alignItems: 'center',
-        backgroundColor: colors.surfaceAlt,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 999,
-        paddingVertical: 8,
-        paddingHorizontal: 14,
+        justifyContent: 'center',
     },
-    editAvatarText: { color: colors.textPrimary, fontWeight: '600' },
+    identityCopy: { alignItems: 'center', gap: 4 },
+    userName: { fontWeight: '900', fontSize: 22, textTransform: 'capitalize' },
+    userEmail: { fontSize: 13, fontWeight: '700' },
+    metricGrid: { gap: 10 },
+    metricRow: { flexDirection: 'row', gap: 10 },
     infoCard: { gap: 8 },
+    sectionTitle: { fontSize: 17, fontWeight: '900', marginBottom: 2 },
     row: {
+        minHeight: 44,
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        gap: 10,
         alignItems: 'center',
-        paddingVertical: 6,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.border,
     },
-    rowLabel: { color: colors.textSecondary },
-    rowValue: { color: colors.textPrimary, fontWeight: '600' },
+    rowLabel: { flex: 1, fontWeight: '700' },
+    rowValue: { fontWeight: '900' },
+    actions: { flexDirection: 'row', gap: 10 },
+    actionButton: { flex: 1 },
 });

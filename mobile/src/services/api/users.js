@@ -11,3 +11,15 @@ export async function updateCurrentUser(payload) {
     body: payload,
   });
 }
+
+export async function listBodyMetricEntries() {
+  return apiRequest('/users/me/body-metrics', { auth: true });
+}
+
+export async function createBodyMetricEntry(payload) {
+  return apiRequest('/users/me/body-metrics', {
+    method: 'POST',
+    auth: true,
+    body: payload,
+  });
+}

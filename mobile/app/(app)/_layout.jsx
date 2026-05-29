@@ -17,7 +17,7 @@ export default function AppLayout() {
       <Stack.Screen name="(tabs)"/>
       <Stack.Screen name="onboarding-profile"/>
       <Stack.Screen name="onboarding-goals"/>
-      <Stack.Screen name="profile"/>
+      <Stack.Screen name="profile-edit"/>
       <Stack.Screen name="goals"/>
       <Stack.Screen name="body-progress"/>
       <Stack.Screen name="workout-setup"/>

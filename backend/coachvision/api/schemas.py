@@ -55,6 +55,24 @@ class UpdateUserMeRequest(BaseModel):
     locale: str | None = None
 
 
+class BodyMetricCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    date: str
+    weight_kg: float = Field(..., ge=20, le=400, alias="weightKg")
+    body_fat_percent: float = Field(..., ge=0, le=70, alias="bodyFatPercent")
+
+
+class BodyMetricResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    entry_date: date = Field(alias="date")
+    weight_kg: float = Field(alias="weightKg")
+    body_fat_percent: float = Field(alias="bodyFatPercent")
+    created_at: datetime = Field(alias="createdAt")
+
+
 class ExerciseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

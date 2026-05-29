@@ -38,6 +38,23 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     sessions: Mapped[list["Session"]] = relationship(back_populates="user")
+    body_metrics: Mapped[list["BodyMetric"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class BodyMetric(Base):
+    __tablename__ = "body_metrics"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entry_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    weight_kg: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    body_fat_percent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="body_metrics")
 
 
 class Exercise(Base):
