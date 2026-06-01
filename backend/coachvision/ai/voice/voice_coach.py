@@ -20,7 +20,9 @@ try:
     import sounddevice as sd
     import soundfile as sf
     HAS_AUDIO = True
-except ImportError:
+except (ImportError, OSError):
+    sd = None
+    sf = None
     HAS_AUDIO = False
 
 from .feedback_policy import FeedbackLabel
