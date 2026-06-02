@@ -117,6 +117,11 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     name="viewport"
     content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
   />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://storage.googleapis.com" />
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35" />
   <style>
     html, body {
       margin: 0;
@@ -362,6 +367,7 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     }
 
     async function startCamera() {
+      status.textContent = "Opening camera...";
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera API is not available in this WebView.");
       }
@@ -384,6 +390,7 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     }
 
     async function startModel() {
+      status.textContent = "Loading on-device AI...";
       const vision = await FilesetResolver.forVisionTasks(WASM_URL);
       landmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
@@ -396,10 +403,6 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
         minPosePresenceConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
-      status.textContent = "On-device AI ready";
-      setTimeout(() => {
-        status.style.opacity = "0";
-      }, 900);
       post({ type: "modelReady" });
     }
 
@@ -465,8 +468,12 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     async function boot() {
       try {
         fitCanvas();
-        await startCamera();
-        await startModel();
+        status.textContent = "Opening camera and loading AI...";
+        await Promise.all([startCamera(), startModel()]);
+        status.textContent = "On-device AI ready";
+        setTimeout(() => {
+          status.style.opacity = "0";
+        }, 650);
         requestAnimationFrame(runPoseLoop);
       } catch (error) {
         const message = error && error.message ? error.message : String(error);

@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_ORIGIN": "https://coachvision-thdo.onrender.com",
+        "EXPO_PUBLIC_API_PREFIX": "/v1",
+        "EXPO_PUBLIC_WS_ORIGIN": "wss://coachvision-thdo.onrender.com",
+        "EXPO_PUBLIC_USE_MOCK_STREAM": "false"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_ORIGIN": "https://coachvision-thdo.onrender.com",
+        "EXPO_PUBLIC_API_PREFIX": "/v1",
+        "EXPO_PUBLIC_WS_ORIGIN": "wss://coachvision-thdo.onrender.com",
+        "EXPO_PUBLIC_USE_MOCK_STREAM": "false"
+      }
+    }
+  }
+}
