@@ -32,6 +32,8 @@ def create_session(
         status="planned",
         target_sets=payload.target_sets,
         target_reps=payload.target_reps,
+        external_load_kg=payload.external_load_kg,
+        body_weight_kg=payload.body_weight_kg or current_user.weight_kg,
     )
     db.add(session)
     db.commit()
@@ -133,6 +135,10 @@ def end_session(
         session.total_reps = payload.total_reps
     if payload is not None and payload.avg_form_score is not None:
         session.avg_form_score = payload.avg_form_score
+    if payload is not None and payload.external_load_kg is not None:
+        session.external_load_kg = payload.external_load_kg
+    if payload is not None and payload.body_weight_kg is not None:
+        session.body_weight_kg = payload.body_weight_kg
     session.updated_at = now_utc
     db.add(session)
     from ..services.session_feedback_generator import ensure_session_feedback_for_completed_workout

@@ -54,9 +54,31 @@ def _ensure_user_profile_columns() -> None:
             conn.execute(text(stmt))
 
 
+def _ensure_session_load_columns() -> None:
+    inspector = inspect(engine)
+    try:
+        existing = {col["name"] for col in inspector.get_columns("sessions")}
+    except Exception:  # noqa: BLE001
+        return
+
+    statements: list[str] = []
+    if "external_load_kg" not in existing:
+        statements.append("ALTER TABLE sessions ADD COLUMN external_load_kg NUMERIC(6, 2)")
+    if "body_weight_kg" not in existing:
+        statements.append("ALTER TABLE sessions ADD COLUMN body_weight_kg NUMERIC(6, 2)")
+
+    if not statements:
+        return
+
+    with engine.begin() as conn:
+        for stmt in statements:
+            conn.execute(text(stmt))
+
+
 def bootstrap_database() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_user_profile_columns()
+    _ensure_session_load_columns()
 
     db = SessionLocal()
     try:

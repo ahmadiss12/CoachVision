@@ -154,6 +154,8 @@ def load_or_create_workout_for_ws_start(
     rest_session_id: UUID | None,
     target_sets: int,
     target_reps: int,
+    external_load_kg: float | None = None,
+    body_weight_kg: float | None = None,
 ) -> tuple[WorkoutSession | None, str | None]:
     """
     Returns (workout, error_code). error_code is set on failure.
@@ -175,6 +177,10 @@ def load_or_create_workout_for_ws_start(
         row.status = "active"
         if not row.started_at:
             row.started_at = now
+        if external_load_kg is not None:
+            row.external_load_kg = external_load_kg
+        if body_weight_kg is not None:
+            row.body_weight_kg = body_weight_kg
         row.updated_at = now
         db.add(row)
         db.commit()
@@ -188,6 +194,8 @@ def load_or_create_workout_for_ws_start(
         status="active",
         target_sets=max(1, target_sets),
         target_reps=max(1, target_reps),
+        external_load_kg=external_load_kg,
+        body_weight_kg=body_weight_kg,
         started_at=now,
         updated_at=now,
     )

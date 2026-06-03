@@ -8,6 +8,8 @@ function toSessionShape(payload) {
     status: payload.status,
     targetSets: payload.targetSets ?? payload.target_sets ?? 0,
     targetReps: payload.targetReps ?? payload.target_reps ?? 0,
+    externalLoadKg: payload.externalLoadKg ?? payload.external_load_kg ?? null,
+    bodyWeightKg: payload.bodyWeightKg ?? payload.body_weight_kg ?? null,
     totalReps: payload.totalReps ?? payload.total_reps ?? 0,
     avgFormScore: payload.avgFormScore ?? payload.avg_form_score ?? null,
     durationSeconds: payload.durationSeconds ?? payload.duration_seconds ?? null,
@@ -36,11 +38,18 @@ function toFeedbackShape(payload) {
   };
 }
 
-export async function createSession({ exerciseId, targetSets = 1, targetReps = 1, difficulty = 'beginner' }) {
+export async function createSession({
+  exerciseId,
+  targetSets = 1,
+  targetReps = 1,
+  difficulty = 'beginner',
+  externalLoadKg = null,
+  bodyWeightKg = null,
+}) {
   const payload = await apiRequest('/sessions', {
     method: 'POST',
     auth: true,
-    body: { exerciseId, targetSets, targetReps, difficulty },
+    body: { exerciseId, targetSets, targetReps, difficulty, externalLoadKg, bodyWeightKg },
   });
   return toSessionShape(payload);
 }
@@ -70,6 +79,8 @@ export async function endSession(sessionId, summary = {}) {
     body: {
       totalReps: summary.totalReps ?? summary.total_reps ?? 0,
       avgFormScore: summary.avgFormScore ?? summary.avg_form_score ?? null,
+      externalLoadKg: summary.externalLoadKg ?? summary.external_load_kg ?? null,
+      bodyWeightKg: summary.bodyWeightKg ?? summary.body_weight_kg ?? null,
     },
   });
   return toSessionShape(payload);

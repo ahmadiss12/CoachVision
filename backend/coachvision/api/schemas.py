@@ -87,11 +87,15 @@ class CreateSessionRequest(BaseModel):
     target_sets: int = Field(1, ge=1, alias="targetSets")
     target_reps: int = Field(1, ge=1, alias="targetReps")
     difficulty: str = "intermediate"
+    external_load_kg: float | None = Field(default=None, ge=0, le=300, alias="externalLoadKg")
+    body_weight_kg: float | None = Field(default=None, ge=20, le=400, alias="bodyWeightKg")
 
 
 class EndSessionRequest(BaseModel):
     total_reps: int | None = Field(default=None, ge=0, alias="totalReps")
     avg_form_score: float | None = Field(default=None, ge=0, le=100, alias="avgFormScore")
+    external_load_kg: float | None = Field(default=None, ge=0, le=300, alias="externalLoadKg")
+    body_weight_kg: float | None = Field(default=None, ge=20, le=400, alias="bodyWeightKg")
 
 
 class SessionResponse(BaseModel):
@@ -103,6 +107,8 @@ class SessionResponse(BaseModel):
     status: str
     target_sets: int = Field(alias="targetSets")
     target_reps: int = Field(alias="targetReps")
+    external_load_kg: float | None = Field(default=None, alias="externalLoadKg")
+    body_weight_kg: float | None = Field(default=None, alias="bodyWeightKg")
     total_reps: int = Field(alias="totalReps")
     avg_form_score: float | None = Field(default=None, alias="avgFormScore")
     duration_seconds: int | None = Field(default=None, alias="durationSeconds")
@@ -186,4 +192,69 @@ class SessionFeedbackResponse(BaseModel):
     version: str
     generated_at: datetime = Field(alias="generatedAt")
     updated_at: datetime = Field(alias="updatedAt")
+
+
+class ReportUserResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    email: str
+    display_name: str = Field(alias="displayName")
+
+
+class DailyReportSummaryResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    date: date
+    timezone: str
+    total_sessions: int = Field(alias="totalSessions")
+    total_reps: int = Field(alias="totalReps")
+    total_duration_seconds: int = Field(alias="totalDurationSeconds")
+    avg_form_score: float | None = Field(default=None, alias="avgFormScore")
+    total_external_load_volume_kg: float | None = Field(
+        default=None,
+        alias="totalExternalLoadVolumeKg",
+        description="Sum of externalLoadKg * reps for weighted rep-based workouts.",
+    )
+
+
+class ReportRepStatsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rep_count: int = Field(alias="repCount")
+    avg_range_of_motion: float | None = Field(default=None, alias="avgRangeOfMotion")
+    avg_rep_duration_ms: float | None = Field(default=None, alias="avgRepDurationMs")
+    avg_form_score: float | None = Field(default=None, alias="avgFormScore")
+    depth_quality_counts: dict[str, int] = Field(default_factory=dict, alias="depthQualityCounts")
+
+
+class DailyReportSessionResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    session_id: UUID = Field(alias="sessionId")
+    exercise_id: str = Field(alias="exerciseId")
+    exercise_name: str = Field(alias="exerciseName")
+    difficulty: str
+    target_sets: int = Field(alias="targetSets")
+    target_reps: int = Field(alias="targetReps")
+    total_reps: int = Field(alias="totalReps")
+    avg_form_score: float | None = Field(default=None, alias="avgFormScore")
+    duration_seconds: int | None = Field(default=None, alias="durationSeconds")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    ended_at: datetime | None = Field(default=None, alias="endedAt")
+    external_load_kg: float | None = Field(default=None, alias="externalLoadKg")
+    body_weight_kg: float | None = Field(default=None, alias="bodyWeightKg")
+    uses_external_load: bool = Field(alias="usesExternalLoad")
+    estimated_volume_load_kg: float | None = Field(default=None, alias="estimatedVolumeLoadKg")
+    feedback: SessionFeedbackResponse | None = None
+    rep_stats: ReportRepStatsResponse = Field(alias="repStats")
+
+
+class DailyReportResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    generated_at: datetime = Field(alias="generatedAt")
+    user: ReportUserResponse
+    summary: DailyReportSummaryResponse
+    sessions: list[DailyReportSessionResponse]
 

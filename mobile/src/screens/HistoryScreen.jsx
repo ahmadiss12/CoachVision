@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect } from 'react';
-import { FlatList, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/src/components/Card';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getExerciseMetadata } from '@/src/constants/exercise-metadata';
+import { exportDailyReportPdf } from '@/src/services/reports/daily-report-pdf';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
 
@@ -44,17 +45,53 @@ function MiniStat({ icon, label, value, colors }) {
 
 export function HistoryScreen() {
     const { history, loadHistory, themeMode } = useAppState();
+    const [isExporting, setIsExporting] = useState(false);
     const colors = getThemeColors(themeMode);
     useEffect(() => {
         loadHistory();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    const handleExportToday = useCallback(async () => {
+        if (isExporting) {
+            return;
+        }
+        setIsExporting(true);
+        try {
+            const result = await exportDailyReportPdf();
+            if (!result.shared) {
+                Alert.alert('PDF created', 'Sharing is not available on this device.');
+            }
+        } catch (error) {
+            Alert.alert('Export failed', error?.message || 'Unable to create the daily coach report.');
+        } finally {
+            setIsExporting(false);
+        }
+    }, [isExporting]);
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
         <ScreenHeader
           icon="time-outline"
           title="Workout history"
           subtitle={`${history.length} saved ${history.length === 1 ? 'session' : 'sessions'}`}
+          right={
+            <Pressable
+              disabled={isExporting}
+              onPress={handleExportToday}
+              style={({ pressed }) => [
+                styles.exportButton,
+                {
+                  backgroundColor: colors.surfaceAlt,
+                  borderColor: colors.border,
+                  opacity: isExporting ? 0.5 : pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <Ionicons name={isExporting ? 'sync-outline' : 'document-text-outline'} size={17} color={colors.brandAlt} />
+              <Text style={[styles.exportText, { color: colors.textPrimary }]} numberOfLines={1}>
+                {isExporting ? 'Exporting' : 'PDF'}
+              </Text>
+            </Pressable>
+          }
         />
         {history.length === 0 ? (<Card style={styles.emptyCard}>
             <View style={[styles.emptyIcon, { backgroundColor: colors.surfaceAlt }]}>
@@ -119,4 +156,16 @@ const styles = StyleSheet.create({
     },
     emptyTitle: { fontSize: 18, fontWeight: '900' },
     empty: { textAlign: 'center', lineHeight: 20 },
+    exportButton: {
+        minWidth: 84,
+        height: 42,
+        borderRadius: 8,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    exportText: { fontSize: 13, fontWeight: '900' },
 });

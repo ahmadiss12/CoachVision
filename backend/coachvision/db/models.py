@@ -88,6 +88,8 @@ class Session(Base):
     target_sets: Mapped[int] = mapped_column(Integer, default=1)
     target_reps: Mapped[int] = mapped_column(Integer, default=1)
     planned_rest_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    external_load_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    body_weight_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     total_reps: Mapped[int] = mapped_column(Integer, default=0)
     avg_form_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -34,6 +34,25 @@ def _j(payload: dict[str, Any]) -> dict[str, Any]:
     return {"schemaVersion": SCHEMA_VERSION, **payload}
 
 
+def _optional_bounded_float(value: Any, *, min_value: float, max_value: float) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):  # noqa: PLR0124
+        return None
+    return max(min_value, min(max_value, parsed))
+
+
+def _first_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    return None
+
+
 @router.websocket("/ws/live")
 async def websocket_live(
     websocket: WebSocket,
@@ -113,6 +132,34 @@ async def websocket_live(
                 difficulty = str(msg.get("difficulty", "intermediate")).strip().lower()
                 target_sets = int(msg.get("targetSets", 1))
                 target_reps = int(msg.get("targetReps", 1))
+                readiness_context = msg.get("readinessContext")
+                if not isinstance(readiness_context, dict):
+                    readiness_context = {}
+                load_value = _first_value(msg, "externalLoadKg", "external_load_kg", "loadKg")
+                if load_value is None:
+                    load_value = _first_value(
+                        readiness_context,
+                        "externalLoadKg",
+                        "external_load_kg",
+                        "loadKg",
+                    )
+                body_weight_value = _first_value(msg, "bodyWeightKg", "body_weight_kg")
+                if body_weight_value is None:
+                    body_weight_value = _first_value(
+                        readiness_context,
+                        "bodyWeightKg",
+                        "body_weight_kg",
+                    )
+                external_load_kg = _optional_bounded_float(
+                    load_value,
+                    min_value=0,
+                    max_value=300,
+                )
+                body_weight_kg = _optional_bounded_float(
+                    body_weight_value,
+                    min_value=20,
+                    max_value=400,
+                )
                 rest_sid = msg.get("sessionId")
                 rest_uuid: UUID | None = None
                 if rest_sid is not None:
@@ -168,6 +215,8 @@ async def websocket_live(
                     rest_session_id=rest_uuid,
                     target_sets=target_sets,
                     target_reps=target_reps,
+                    external_load_kg=external_load_kg,
+                    body_weight_kg=body_weight_kg,
                 )
                 if err or workout is None:
                     await websocket.send_json(

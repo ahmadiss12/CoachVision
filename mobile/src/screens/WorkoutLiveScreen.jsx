@@ -938,6 +938,9 @@ export function WorkoutLiveScreen() {
                 difficulty: currentSession.config.difficulty || 'beginner',
                 targetSets: currentSession.config.targetSets || 1,
                 targetReps: currentSession.config.targetReps || 1,
+                externalLoadKg: currentSession.config.readinessContext?.externalLoadKg ?? 0,
+                bodyWeightKg: currentSession.config.readinessContext?.bodyWeightKg ?? null,
+                readinessContext: currentSession.config.readinessContext ?? {},
             });
             if (!sent) {
                 throw new Error('Unable to initialize live workout.');

@@ -83,6 +83,8 @@ function summaryFromSession(session) {
         difficulty: session.difficulty,
         targetSets: session.targetSets ?? 1,
         targetReps: session.targetReps ?? 1,
+        externalLoadKg: session.externalLoadKg ?? 0,
+        bodyWeightKg: session.bodyWeightKg ?? null,
         reps: session.totalReps ?? 0,
         score: session.avgFormScore ?? 0,
         notes: '',
@@ -513,11 +515,15 @@ export function AppStateProvider({ children }) {
         }
         setIsBusy(true);
         try {
+            const externalLoadKg = Number(config.readinessContext?.externalLoadKg ?? 0);
+            const bodyWeightKg = Number(config.readinessContext?.bodyWeightKg ?? profile?.weightKg ?? 0);
             const created = await createSession({
                 exerciseId: config.exerciseName,
                 difficulty: config.difficulty || 'beginner',
                 targetSets: config.targetSets || 1,
                 targetReps: config.targetReps || 1,
+                externalLoadKg: Number.isFinite(externalLoadKg) ? externalLoadKg : 0,
+                bodyWeightKg: Number.isFinite(bodyWeightKg) && bodyWeightKg > 0 ? bodyWeightKg : null,
             });
             const started = await startSession(created.id);
             const nextSession = {
@@ -578,6 +584,8 @@ export function AppStateProvider({ children }) {
             const ended = await endSession(currentSession.sessionId, {
                 totalReps: fallbackReps,
                 avgFormScore: fallbackScore,
+                externalLoadKg: currentSession.config.readinessContext?.externalLoadKg ?? 0,
+                bodyWeightKg: currentSession.config.readinessContext?.bodyWeightKg ?? profile?.weightKg ?? null,
             });
             let feedback = null;
             try {
@@ -634,7 +642,8 @@ export function AppStateProvider({ children }) {
                 difficulty: currentSession.config.difficulty,
                 targetSets: currentSession.config.targetSets ?? 1,
                 targetReps: currentSession.config.targetReps ?? 1,
-                externalLoadKg: currentSession.config.readinessContext?.externalLoadKg ?? 0,
+                externalLoadKg: ended.externalLoadKg ?? currentSession.config.readinessContext?.externalLoadKg ?? 0,
+                bodyWeightKg: ended.bodyWeightKg ?? currentSession.config.readinessContext?.bodyWeightKg ?? null,
                 reps,
                 score,
                 notes: feedback?.summaryText || currentSession.latestMetrics.feedback,
