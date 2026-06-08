@@ -2,7 +2,10 @@ import { Redirect, Stack, useSegments } from 'expo-router';
 import { useAppState } from '@/src/state/app-state';
 export default function AppLayout() {
     const segments = useSegments();
-    const { isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    const { isHydrating, isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    if (isHydrating) {
+        return null;
+    }
     if (!isAuthenticated) {
         return <Redirect href="/(auth)/login"/>;
     }

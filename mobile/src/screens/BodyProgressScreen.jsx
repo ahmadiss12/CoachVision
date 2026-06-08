@@ -45,7 +45,7 @@ export function BodyProgressScreen() {
     }, []);
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
-        <ScreenHeader icon="analytics-outline" title="Body progress" subtitle="Weight and body composition check-ins." />
+        <ScreenHeader showBack icon="analytics-outline" title="Body progress" subtitle="Weight and body composition check-ins." />
 
         <Card style={styles.formCard}>
           <Input icon="calendar-outline" label="Date" value={date} onChangeText={setDate}/>

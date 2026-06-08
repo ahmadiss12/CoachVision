@@ -5,6 +5,7 @@ import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { validateRegisterFields } from '../services/validation/auth-form';
 import { useAppState } from '../state/app-state';
 import { getThemeColors } from '../theme/colors';
 
@@ -15,12 +16,20 @@ export function RegisterScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [formError, setFormError] = useState(null);
     const mismatch = Boolean(password && confirmPassword && password !== confirmPassword);
-    const handleRegister = async () => {
+    const clearFormError = () => {
+        setFormError(null);
         clearError();
-        if (mismatch)
+    };
+    const handleRegister = async () => {
+        clearFormError();
+        const validationError = validateRegisterFields({ email, password, confirmPassword });
+        if (validationError) {
+            setFormError(validationError);
             return;
-        const user = await register({ email, password });
+        }
+        const user = await register({ email: email.trim(), password });
         if (user) {
             router.replace('/(app)/onboarding-profile');
         }
@@ -36,10 +45,47 @@ export function RegisterScreen() {
         </View>
 
         <Card style={styles.formCard}>
-          <Input icon="mail-outline" label="Email" value={email} placeholder="you@example.com" onChangeText={setEmail}/>
-          <Input icon="key-outline" label="Password" value={password} placeholder="Password" secureTextEntry onChangeText={setPassword}/>
-          <Input icon="shield-checkmark-outline" label="Confirm password" value={confirmPassword} placeholder="Repeat password" secureTextEntry onChangeText={setConfirmPassword}/>
+          <Input
+            icon="mail-outline"
+            label="Email"
+            value={email}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            onChangeText={(value) => {
+                setEmail(value);
+                if (formError || latestError)
+                    clearFormError();
+            }}
+          />
+          <Input
+            icon="key-outline"
+            label="Password"
+            value={password}
+            placeholder="Password"
+            secureTextEntry
+            textContentType="newPassword"
+            onChangeText={(value) => {
+                setPassword(value);
+                if (formError || latestError)
+                    clearFormError();
+            }}
+          />
+          <Input
+            icon="shield-checkmark-outline"
+            label="Confirm password"
+            value={confirmPassword}
+            placeholder="Repeat password"
+            secureTextEntry
+            textContentType="newPassword"
+            onChangeText={(value) => {
+                setConfirmPassword(value);
+                if (formError || latestError)
+                    clearFormError();
+            }}
+          />
 
+          {formError ? <InlineError message={formError} colors={colors} /> : null}
           {mismatch ? <InlineError message="Passwords do not match." colors={colors} /> : null}
           {latestError ? <InlineError message={latestError} colors={colors} /> : null}
 

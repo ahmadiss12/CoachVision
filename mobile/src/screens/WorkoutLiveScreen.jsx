@@ -959,6 +959,20 @@ export function WorkoutLiveScreen() {
         setLiveStatus((prev) => (prev === 'live' ? 'paused' : prev));
     };
 
+    const leaveWorkout = () => {
+        stopStreaming();
+        Speech.stop();
+        setIsRunning(false);
+        setLiveStatus('idle');
+        wsRef.current?.close();
+        wsRef.current = null;
+        if (typeof router.canGoBack === 'function' && router.canGoBack()) {
+            router.back();
+            return;
+        }
+        router.replace('/(app)/(tabs)');
+    };
+
     const endSession = async () => {
         stopStreaming();
         Speech.stop();
@@ -1018,13 +1032,26 @@ export function WorkoutLiveScreen() {
             </View>
           ) : null}
 
-          <LiveTopHud
-            exerciseName={exerciseName}
-            difficulty={difficulty}
-            liveStatus={liveStatus}
-            webStatus={webStatus}
-            toneMeta={toneMeta}
-          />
+          <View style={styles.liveTopRow}>
+            <Pressable
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={leaveWorkout}
+              style={({ pressed }) => [styles.liveBackButton, pressed && styles.liveBackButtonPressed]}
+            >
+              <Ionicons name="chevron-back" size={23} color="#fff" />
+            </Pressable>
+            <View style={styles.liveTopHudWrap}>
+              <LiveTopHud
+                exerciseName={exerciseName}
+                difficulty={difficulty}
+                liveStatus={liveStatus}
+                webStatus={webStatus}
+                toneMeta={toneMeta}
+              />
+            </View>
+          </View>
 
           <CameraStatusOverlay webStatus={webStatus} />
 
@@ -1112,6 +1139,23 @@ const styles = StyleSheet.create({
         paddingTop: 6,
         paddingBottom: 6,
     },
+    liveTopRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    liveBackButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.18)',
+        backgroundColor: 'rgba(3, 7, 18, 0.58)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    liveBackButtonPressed: { opacity: 0.78 },
+    liveTopHudWrap: { flex: 1, minWidth: 0 },
     topHud: {
         flexDirection: 'row',
         justifyContent: 'space-between',

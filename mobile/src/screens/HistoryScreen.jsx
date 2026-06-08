@@ -70,6 +70,7 @@ export function HistoryScreen() {
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
         <ScreenHeader
+          showBack
           icon="time-outline"
           title="Workout history"
           subtitle={`${history.length} saved ${history.length === 1 ? 'session' : 'sessions'}`}

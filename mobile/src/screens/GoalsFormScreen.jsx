@@ -41,6 +41,7 @@ export function GoalsFormScreen({ mode }) {
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <ScreenHeader
+          showBack={mode !== 'onboarding'}
           icon="flag-outline"
           title={mode === 'onboarding' ? 'Set your goals' : 'Edit goals'}
           subtitle={mode === 'onboarding'

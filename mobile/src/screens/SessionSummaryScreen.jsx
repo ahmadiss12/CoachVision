@@ -264,6 +264,7 @@ export function SessionSummaryScreen() {
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
         <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
           <ScreenHeader
+            showBack
             icon="checkmark-done-circle-outline"
             title="Session summary"
             subtitle={latestSummary ? `${exerciseLabel} | ${latestSummary.difficulty || 'Workout'}` : 'Finish a workout to see your summary.'}

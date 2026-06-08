@@ -5,6 +5,7 @@ import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View }
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { validateLoginFields } from '../services/validation/auth-form';
 import { useAppState } from '../state/app-state';
 import { getThemeColors } from '../theme/colors';
 
@@ -18,9 +19,19 @@ export function LoginScreen() {
     const colors = getThemeColors(themeMode);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const handleLogin = async () => {
+    const [formError, setFormError] = useState(null);
+    const clearFormError = () => {
+        setFormError(null);
         clearError();
-        const user = await login({ email, password });
+    };
+    const handleLogin = async () => {
+        clearFormError();
+        const validationError = validateLoginFields({ email, password });
+        if (validationError) {
+            setFormError(validationError);
+            return;
+        }
+        const user = await login({ email: email.trim(), password });
         if (user) {
             router.replace(hasSavedBodyProfile(user) ? '/' : '/(app)/onboarding-profile');
         }
@@ -36,13 +47,37 @@ export function LoginScreen() {
         </View>
 
         <Card style={styles.formCard}>
-          <Input icon="mail-outline" label="Email" value={email} placeholder="you@example.com" onChangeText={setEmail}/>
-          <Input icon="key-outline" label="Password" value={password} placeholder="Password" secureTextEntry onChangeText={setPassword}/>
+          <Input
+            icon="mail-outline"
+            label="Email"
+            value={email}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            onChangeText={(value) => {
+                setEmail(value);
+                if (formError || latestError)
+                    clearFormError();
+            }}
+          />
+          <Input
+            icon="key-outline"
+            label="Password"
+            value={password}
+            placeholder="Password"
+            secureTextEntry
+            textContentType="password"
+            onChangeText={(value) => {
+                setPassword(value);
+                if (formError || latestError)
+                    clearFormError();
+            }}
+          />
 
-          {latestError ? (
+          {formError || latestError ? (
             <View style={[styles.errorBox, { backgroundColor: `${colors.danger}18`, borderColor: `${colors.danger}55` }]}>
               <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
-              <Text style={[styles.error, { color: colors.danger }]}>{latestError}</Text>
+              <Text style={[styles.error, { color: colors.danger }]}>{formError || latestError}</Text>
             </View>
           ) : null}
 

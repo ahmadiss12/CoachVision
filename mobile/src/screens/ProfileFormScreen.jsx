@@ -116,6 +116,7 @@ export function ProfileFormScreen({ mode }) {
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <ScreenHeader
+          showBack={mode !== 'onboarding'}
           icon="person-circle-outline"
           title={mode === 'onboarding' ? 'Complete profile' : 'Edit body profile'}
           subtitle={mode === 'onboarding'

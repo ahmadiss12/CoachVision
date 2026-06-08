@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { getExerciseMetadata } from '../constants/exercise-metadata';
 import {
   loginUser,
@@ -25,6 +25,18 @@ import {
   listBodyMetricEntries,
   updateCurrentUser,
 } from '../services/api/users';
+import {
+  clearStoredAuthTokens,
+  loadStoredAuthTokens,
+  loadStoredGoals,
+  loadStoredThemeMode,
+  loadStoredWorkoutPreferences,
+  saveStoredAuthTokens,
+  saveStoredGoals,
+  saveStoredThemeMode,
+  saveStoredWorkoutPreferences,
+  userStorageKey,
+} from '../services/local/app-storage';
 const defaultMetrics = {
     count: 0,
     state: 'idle',
@@ -33,6 +45,9 @@ const defaultMetrics = {
     progress: 0,
     formName: 'Correct',
     confidence: 0,
+};
+const defaultWorkoutPreferences = {
+    difficulty: 'beginner',
 };
 function computeAgeFromDob(dateOfBirth) {
     if (!dateOfBirth)
@@ -108,6 +123,8 @@ export function AppStateProvider({ children }) {
     const [profile, setProfile] = useState(null);
     const [goals, setGoals] = useState(null);
     const [themeMode, setThemeMode] = useState('dark');
+    const [workoutPreferences, setWorkoutPreferences] = useState(defaultWorkoutPreferences);
+    const [isHydrating, setIsHydrating] = useState(true);
     const [isBusy, setIsBusy] = useState(false);
     const [latestError, setLatestError] = useState(null);
     const [currentSession, setCurrentSession] = useState(null);
@@ -118,15 +135,25 @@ export function AppStateProvider({ children }) {
     const [availableExercises, setAvailableExercises] = useState([]);
     const [history, setHistory] = useState([]);
     const [bodyMetrics, setBodyMetrics] = useState([]);
+    const userKeyRef = useRef(null);
 
     const setTokensEverywhere = (tokens) => {
         setAuthTokens(tokens);
-        setApiAuthTokens(tokens);
+        if (tokens) {
+            setApiAuthTokens(tokens);
+            saveStoredAuthTokens(tokens).catch(() => undefined);
+        }
+        else {
+            clearApiAuthTokens();
+            clearStoredAuthTokens().catch(() => undefined);
+        }
     };
 
     const resetUserScopedState = () => {
+        userKeyRef.current = null;
         setProfile(null);
         setGoals(null);
+        setWorkoutPreferences(defaultWorkoutPreferences);
         setBodyMetrics([]);
         setCurrentSession(null);
         setLatestSummary(null);
@@ -146,7 +173,6 @@ export function AppStateProvider({ children }) {
             return true;
         } catch {
             setTokensEverywhere(null);
-            clearApiAuthTokens();
             setAuthUser(null);
             return false;
         }
@@ -173,11 +199,30 @@ export function AppStateProvider({ children }) {
         });
     };
 
+    const loadUserLocalState = async (user) => {
+        const key = userStorageKey(user);
+        userKeyRef.current = key;
+        const [storedGoals, storedWorkoutPreferences] = await Promise.all([
+            loadStoredGoals(key),
+            loadStoredWorkoutPreferences(key),
+        ]);
+        setGoals(storedGoals ?? null);
+        setWorkoutPreferences({
+            ...defaultWorkoutPreferences,
+            ...(storedWorkoutPreferences ?? {}),
+        });
+    };
+
+    const applyAuthenticatedUser = async (user) => {
+        setAuthUser(user);
+        hydrateProfileFromUser(user);
+        await loadUserLocalState(user);
+    };
+
     const loadCurrentUser = async () => {
         try {
             const user = await getCurrentUser();
-            setAuthUser(user);
-            hydrateProfileFromUser(user);
+            await applyAuthenticatedUser(user);
             setLatestError(null);
             return user;
         } catch (error) {
@@ -185,8 +230,7 @@ export function AppStateProvider({ children }) {
                 const refreshed = await ensureFreshAccessToken();
                 if (refreshed) {
                     const user = await getCurrentUser();
-                    setAuthUser(user);
-                    hydrateProfileFromUser(user);
+                    await applyAuthenticatedUser(user);
                     setLatestError(null);
                     return user;
                 }
@@ -237,6 +281,74 @@ export function AppStateProvider({ children }) {
             return [];
         }
     };
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const hydrateStoredState = async () => {
+            try {
+                const [storedThemeMode, storedTokens] = await Promise.all([
+                    loadStoredThemeMode(),
+                    loadStoredAuthTokens(),
+                ]);
+
+                if (cancelled) {
+                    return;
+                }
+
+                if (storedThemeMode) {
+                    setThemeMode(storedThemeMode);
+                }
+
+                if (!storedTokens?.refreshToken) {
+                    return;
+                }
+
+                setAuthTokens(storedTokens);
+                setApiAuthTokens(storedTokens);
+
+                let user = null;
+                try {
+                    user = await getCurrentUser();
+                } catch (error) {
+                    if (error?.status !== 401) {
+                        throw error;
+                    }
+                    const refreshedTokens = await refreshAuthToken(storedTokens.refreshToken);
+                    if (cancelled) {
+                        return;
+                    }
+                    setTokensEverywhere(refreshedTokens);
+                    user = await getCurrentUser();
+                }
+
+                if (cancelled) {
+                    return;
+                }
+
+                await applyAuthenticatedUser(user);
+                await Promise.all([loadHistory(), loadBodyMetrics()]);
+                setLatestError(null);
+            } catch {
+                if (!cancelled) {
+                    setTokensEverywhere(null);
+                    setAuthUser(null);
+                    resetUserScopedState();
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsHydrating(false);
+                }
+            }
+        };
+
+        hydrateStoredState();
+
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const login = async (input, optionalPassword) => {
         const email = typeof input === 'string' ? input : input?.email;
@@ -300,17 +412,8 @@ export function AppStateProvider({ children }) {
             // Logout is best-effort on client side.
         }
         setTokensEverywhere(null);
-        clearApiAuthTokens();
         setAuthUser(null);
-        setProfile(null);
-        setGoals(null);
-        setBodyMetrics([]);
-        setCurrentSession(null);
-        setLatestSummary(null);
-        setLatestFeedback(null);
-        setLatestFatiguePrediction(null);
-        setFatigueHistory([]);
-        setHistory([]);
+        resetUserScopedState();
     };
     const saveProfile = (payload) => {
         const safeDob = payload.dateOfBirth || '2000-01-01';
@@ -377,6 +480,7 @@ export function AppStateProvider({ children }) {
             weeklyWorkoutTarget: payload.weeklyWorkoutTarget && payload.weeklyWorkoutTarget > 0 ? payload.weeklyWorkoutTarget : 4,
         };
         setGoals(next);
+        saveStoredGoals(userKeyRef.current, next).catch(() => undefined);
         return next;
     };
     const addBodyMetricEntry = (payload) => {
@@ -421,7 +525,23 @@ export function AppStateProvider({ children }) {
     };
     const clearError = () => setLatestError(null);
     const toggleThemeMode = () => {
-        setThemeMode((prev) => (prev === 'dark' ? 'light' : 'dark'));
+        setThemeMode((prev) => {
+            const next = prev === 'dark' ? 'light' : 'dark';
+            saveStoredThemeMode(next).catch(() => undefined);
+            return next;
+        });
+    };
+    const saveWorkoutPreferences = (payload) => {
+        const next = {
+            ...workoutPreferences,
+            ...(payload ?? {}),
+        };
+        if (!['beginner', 'intermediate', 'advanced'].includes(next.difficulty)) {
+            next.difficulty = defaultWorkoutPreferences.difficulty;
+        }
+        setWorkoutPreferences(next);
+        saveStoredWorkoutPreferences(userKeyRef.current, next).catch(() => undefined);
+        return next;
     };
     const predictFatigue = async ({
         exerciseId,
@@ -667,10 +787,12 @@ export function AppStateProvider({ children }) {
         authUser,
         authTokens,
         profile,
+        isHydrating,
         needsOnboarding: Boolean(authUser) && !profile,
         goals,
         needsGoalsOnboarding: Boolean(authUser) && Boolean(profile) && !goals,
         themeMode,
+        workoutPreferences,
         isBusy,
         latestError,
         currentSession,
@@ -692,6 +814,7 @@ export function AppStateProvider({ children }) {
         loadFatigueHistory,
         saveProfile,
         saveGoals,
+        saveWorkoutPreferences,
         updateProfileAvatar,
         addBodyMetricEntry,
         clearError,

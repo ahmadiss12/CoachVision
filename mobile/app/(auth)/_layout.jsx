@@ -1,7 +1,10 @@
 import { Redirect, Stack } from 'expo-router';
 import { useAppState } from '@/src/state/app-state';
 export default function AuthLayout() {
-    const { isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    const { isHydrating, isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    if (isHydrating) {
+        return null;
+    }
     if (isAuthenticated) {
         if (needsOnboarding)
             return <Redirect href="/(app)/onboarding-profile"/>;

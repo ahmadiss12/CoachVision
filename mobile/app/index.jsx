@@ -1,7 +1,9 @@
 import { Redirect } from 'expo-router';
 import { useAppState } from '@/src/state/app-state';
 export default function IndexRoute() {
-    const { isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    const { isHydrating, isAuthenticated, needsOnboarding, needsGoalsOnboarding } = useAppState();
+    if (isHydrating)
+        return null;
     if (!isAuthenticated)
         return <Redirect href="/(auth)/welcome"/>;
     if (needsOnboarding)

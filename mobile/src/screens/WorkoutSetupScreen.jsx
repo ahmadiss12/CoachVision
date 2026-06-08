@@ -71,10 +71,13 @@ export function WorkoutSetupScreen() {
         latestFatiguePrediction,
         predictFatigue,
         loadFatigueHistory,
+        workoutPreferences,
+        saveWorkoutPreferences,
     } = useAppState();
     const colors = getThemeColors(themeMode);
+    const preferredDifficulty = workoutPreferences?.difficulty || 'beginner';
     const [selectedExercise, setSelectedExercise] = useState(null);
-    const [difficulty, setDifficulty] = useState('beginner');
+    const [difficulty, setDifficulty] = useState(preferredDifficulty);
     const [targetReps, setTargetReps] = useState(10);
     const [sleepHours, setSleepHours] = useState(7.5);
     const [muscleSoreness, setMuscleSoreness] = useState(2);
@@ -90,6 +93,13 @@ export function WorkoutSetupScreen() {
     useEffect(() => {
         targetRepsRef.current = targetReps;
     }, [targetReps]);
+    useEffect(() => {
+        setDifficulty(preferredDifficulty);
+    }, [preferredDifficulty]);
+    const chooseDifficulty = useCallback((nextDifficulty) => {
+        setDifficulty(nextDifficulty);
+        saveWorkoutPreferences({ difficulty: nextDifficulty });
+    }, [saveWorkoutPreferences]);
     const resolvedExercises = useMemo(() => {
         if (!availableExercises?.length) {
             return exercises;
@@ -255,6 +265,7 @@ export function WorkoutSetupScreen() {
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       {!selectedExercise ? (<ScrollView contentContainerStyle={[styles.exerciseRoot, { paddingHorizontal: H_PADDING, paddingBottom: H_PADDING }]} showsVerticalScrollIndicator={false}>
           <ScreenHeader
+            showBack
             icon="barbell-outline"
             title="Workout setup"
             subtitle="Choose an exercise to tune your target."
@@ -290,6 +301,7 @@ export function WorkoutSetupScreen() {
           </Pressable>
 
           <ScreenHeader
+            showBack
             icon="pulse-outline"
             title="Choose intensity"
             subtitle={exerciseLabel}
@@ -413,7 +425,7 @@ export function WorkoutSetupScreen() {
           <View style={styles.intensityList}>
             {difficulties.map((item) => {
                 const isActive = difficulty === item.id;
-                return (<Pressable key={item.id} onPress={() => setDifficulty(item.id)} style={[
+                return (<Pressable key={item.id} onPress={() => chooseDifficulty(item.id)} style={[
                         styles.intensityCard,
                         {
                             backgroundColor: isActive ? colors.surfaceAlt : colors.surface,
