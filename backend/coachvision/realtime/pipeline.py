@@ -13,6 +13,11 @@ import cv2
 import numpy as np
 
 from coachvision.ai.counters.dispatcher import ExerciseDispatcher
+from coachvision.ai.squat_form_classifier import (
+    SquatFormPrediction,
+    SquatFormSmoother,
+    get_squat_form_classifier,
+)
 from coachvision.ai.utils.geometry import LandmarkFilter
 from coachvision.ai.voice.feedback_policy import FeedbackLabel, FeedbackPolicy
 from coachvision.ai.voice.phrases import get_phrase
@@ -95,6 +100,7 @@ class LiveSessionState:
     voice_policy: FeedbackPolicy = field(init=False)
     last_voice_feedback: str | None = None
     last_voice_count: int = 0
+    squat_form_smoother: SquatFormSmoother = field(default_factory=SquatFormSmoother)
 
     def __post_init__(self) -> None:
         self.dispatcher.set_exercise(self.exercise_name, level=self.difficulty)
@@ -110,6 +116,7 @@ class LiveSessionState:
         self.voice_policy = FeedbackPolicy(self.exercise_name, self.difficulty)
         self.last_voice_feedback = None
         self.last_voice_count = 0
+        self.squat_form_smoother.reset()
 
     def _extract_landmarks(self, pose_landmarks: Any) -> dict[str, tuple[float, float]]:
         t = time.time()
@@ -146,6 +153,41 @@ def _infer_form_name(feedback: str | None) -> str:
     if "lean" in lower or "chest" in lower:
         return "Forward Lean"
     return "Adjust"
+
+
+def _resolve_form_metrics(
+    state: LiveSessionState,
+    pose_lms: Any,
+    pose_confidence: float,
+    rule_feedback: str | None,
+    timing_ms: dict[str, Any],
+) -> tuple[str, str, float | None, list[float] | None, str]:
+    """Use XGBoost for squat form and retain rule feedback as a safe fallback."""
+    prediction: SquatFormPrediction | None = None
+    exercise = state.exercise_name.lower().replace("-", "_").replace(" ", "_")
+    if exercise == "squat" and pose_confidence >= 0.5:
+        prediction = get_squat_form_classifier().predict(pose_lms)
+        if prediction is not None:
+            prediction = state.squat_form_smoother.update(prediction)
+            timing_ms["form_model"] = round(prediction.inference_ms, 2)
+
+    if prediction is not None and prediction.confidence >= 0.5:
+        return (
+            prediction.form_name,
+            prediction.feedback,
+            prediction.confidence,
+            prediction.probabilities,
+            "xgboost",
+        )
+
+    source = "rule_based_fallback" if exercise == "squat" else "rule_based"
+    return (
+        _infer_form_name(rule_feedback),
+        rule_feedback or "Keep going.",
+        None,
+        None,
+        source,
+    )
 
 
 def _voice_cue_for_metrics(
@@ -258,8 +300,9 @@ def _metrics_from_pose_landmarks(
     feedback = state.dispatcher.get_feedback()
     progress = state.dispatcher.get_progress()
     state_name = getattr(st, "name", None) or getattr(st, "value", str(st))
-    form_name = _infer_form_name(feedback)
-    output_feedback = feedback or "Keep going."
+    form_name, output_feedback, form_confidence, form_probabilities, form_source = (
+        _resolve_form_metrics(state, pose_lms, confidence, feedback, timing_ms)
+    )
     voice = _voice_cue_for_metrics(
         state,
         count,
@@ -286,6 +329,9 @@ def _metrics_from_pose_landmarks(
         "feedback": output_feedback,
         "progress": float(progress),
         "form_name": form_name,
+        "form_confidence": form_confidence,
+        "form_probabilities": form_probabilities,
+        "form_source": form_source,
         "confidence": confidence,
         "pose": _serialize_pose_landmarks(pose_lms),
         "voice": voice,
@@ -339,8 +385,9 @@ def _process_rgb_image(
     feedback = state.dispatcher.get_feedback()
     progress = state.dispatcher.get_progress()
     state_name = getattr(st, "name", None) or getattr(st, "value", str(st))
-    form_name = _infer_form_name(feedback)
-    output_feedback = feedback or "Keep going."
+    form_name, output_feedback, form_confidence, form_probabilities, form_source = (
+        _resolve_form_metrics(state, pose_lms, confidence, feedback, timing_ms)
+    )
     voice = _voice_cue_for_metrics(
         state,
         count,
@@ -366,6 +413,9 @@ def _process_rgb_image(
         "feedback": output_feedback,
         "progress": float(progress),
         "form_name": form_name,
+        "form_confidence": form_confidence,
+        "form_probabilities": form_probabilities,
+        "form_source": form_source,
         "confidence": confidence,
         "pose": _serialize_pose_landmarks(pose_lms),
         "voice": voice,

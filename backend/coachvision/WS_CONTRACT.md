@@ -13,7 +13,7 @@ Every server -> client JSON object includes **`schemaVersion`** (integer, curren
 ### Types
 
 - `started` - `{ schemaVersion, type, sessionId }`
-- `metrics` - exercise-aware `count` plus `measurementType`/`measurementLabel` (`reps`/`REPS` for dynamic exercises, `hold`/`SEC` for plank and wall sit), raw counter count in `rawCount`, state, angle, feedback, progress, formName, confidence, optional hold fields (`holdDurationSec`, `totalHoldTimeSec`, `bestHoldSec`, `completedHolds`), optional `pose` (array of `[x, y, presence]` per landmark for skeleton overlay), optional `voice` (`{ label, text }` for mobile text-to-speech), optional `serverTimingMs`
+- `metrics` - exercise-aware `count` plus `measurementType`/`measurementLabel` (`reps`/`REPS` for dynamic exercises, `hold`/`SEC` for plank and wall sit), raw counter count in `rawCount`, state, angle, feedback, progress, formName, pose confidence, optional XGBoost fields (`formConfidence`, `formProbabilities`, `formSource`), optional hold fields (`holdDurationSec`, `totalHoldTimeSec`, `bestHoldSec`, `completedHolds`), optional `pose` (array of `[x, y, presence]` per landmark for skeleton overlay), optional `voice` (`{ label, text }` for mobile text-to-speech), optional `serverTimingMs`
 - `noPose` - no pose detected this frame, optional `serverTimingMs`
 - `resetAck` - counter reset acknowledged
 - `ended` - includes raw dispatcher `summary`; the richer mistake review is persisted as session feedback and returned by `GET /v1/sessions/{sessionId}/feedback`

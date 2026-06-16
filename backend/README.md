@@ -56,3 +56,4 @@ Expected output ends with `Smoke test passed`.
 - Startup creates missing tables and seeds the supported exercises.
 - Swagger `Authorize` uses `username = email` and `password = password`.
 - The optional server-side pose model path is `coachvision/ai/pose_landmarker.task`. The mobile app sends client-side landmarks, so this file is not required for normal mobile live workouts.
+- Squat repetitions are counted by the temporal finite-state counter, while live squat-form feedback is classified by `coachvision/ai/models/squat_xgboost.json`. Retrain it with `python scripts/train_squat_xgboost.py --dataset <squat_features_augmented.csv>`.

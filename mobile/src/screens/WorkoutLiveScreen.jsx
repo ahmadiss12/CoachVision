@@ -17,8 +17,8 @@ import { getExerciseMetadata } from '../constants/exercise-metadata';
 import { useAppState } from '../state/app-state';
 import { colors } from '../theme/colors';
 
-const LANDMARK_SEND_INTERVAL_MS = 80;
-const UI_UPDATE_INTERVAL_MS = 120;
+const LANDMARK_SEND_INTERVAL_MS = 60;
+const UI_UPDATE_INTERVAL_MS = 80;
 const POSE_IN_FLIGHT_TIMEOUT_MS = 500;
 const VOICE_CUE_COOLDOWN_MS = 1200;
 const SAME_VOICE_CUE_COOLDOWN_MS = 3500;
@@ -123,13 +123,18 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
   <link rel="dns-prefetch" href="https://storage.googleapis.com" />
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35" />
   <style>
+    html {
+      height: 100%;
+      min-height: -webkit-fill-available;
+    }
     html, body {
       margin: 0;
       position: fixed;
       inset: 0;
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
+      width: 100%;
+      height: 100%;
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
       overflow: hidden;
       background: #000;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -137,18 +142,20 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     #stage {
       position: fixed;
       inset: 0;
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
+      width: 100%;
+      height: 100%;
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
       overflow: hidden;
       background: #000;
     }
     #video, #overlay {
       position: absolute;
       inset: 0;
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
+      width: 100%;
+      height: 100%;
+      min-width: 100%;
+      min-height: 100%;
       object-fit: cover;
     }
     #video {
@@ -190,8 +197,8 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
     const MODEL_URL =
       "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
     const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
-    const DETECT_INTERVAL_MS = 66;
-    const POST_INTERVAL_MS = 80;
+    const DETECT_INTERVAL_MS = 50;
+    const POST_INTERVAL_MS = 60;
     const MIN_VISIBILITY = 0.35;
     const CONNECTIONS = [
       [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
@@ -223,6 +230,7 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
 
     const video = document.getElementById("video");
     const canvas = document.getElementById("overlay");
+    const stage = document.getElementById("stage");
     const status = document.getElementById("status");
     const ctx = canvas.getContext("2d");
     let canvasCssWidth = 1;
@@ -249,8 +257,13 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
 
     function fitCanvas() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvasCssWidth = Math.max(1, window.innerWidth);
-      canvasCssHeight = Math.max(1, window.innerHeight);
+      const viewport = window.visualViewport || null;
+      canvasCssWidth = Math.max(1, Math.round(viewport ? viewport.width : window.innerWidth));
+      canvasCssHeight = Math.max(1, Math.round(viewport ? viewport.height : window.innerHeight));
+      stage.style.width = canvasCssWidth + "px";
+      stage.style.height = canvasCssHeight + "px";
+      video.style.width = canvasCssWidth + "px";
+      video.style.height = canvasCssHeight + "px";
       canvas.width = Math.round(canvasCssWidth * dpr);
       canvas.height = Math.round(canvasCssHeight * dpr);
       canvas.style.width = canvasCssWidth + "px";
@@ -324,33 +337,42 @@ const POSE_WEBVIEW_HTML = String.raw`<!doctype html>
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
+      const visiblePairs = [];
       for (const pair of CONNECTIONS) {
         const a = landmarks[pair[0]];
         const b = landmarks[pair[1]];
         if (!a || !b || visibilityOf(a) < MIN_VISIBILITY || visibilityOf(b) < MIN_VISIBILITY) {
           continue;
         }
-        const pa = points[pair[0]];
-        const pb = points[pair[1]];
-        ctx.shadowBlur = 0;
-        ctx.lineWidth = 11;
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.36)";
-        ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
-        ctx.stroke();
-
-        ctx.shadowBlur = 14;
-        ctx.shadowColor = style.glow;
-        ctx.lineWidth = 6;
-        ctx.strokeStyle = style.stroke;
-        ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
-        ctx.stroke();
+        visiblePairs.push(pair);
       }
 
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.34)";
+      ctx.beginPath();
+      for (const pair of visiblePairs) {
+        const pa = points[pair[0]];
+        const pb = points[pair[1]];
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+      }
+      ctx.stroke();
+
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = style.glow;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = style.stroke;
+      ctx.beginPath();
+      for (const pair of visiblePairs) {
+        const pa = points[pair[0]];
+        const pb = points[pair[1]];
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+      }
+      ctx.stroke();
+
+      ctx.shadowBlur = 4;
       ctx.shadowColor = style.glow;
       ctx.fillStyle = style.joint;
       for (let index = 0; index < landmarks.length; index += 1) {
@@ -569,7 +591,7 @@ function LiveTopHud({ exerciseName, difficulty, liveStatus, webStatus, toneMeta 
 
 function CameraStatusOverlay({ webStatus }) {
     if (webStatus === 'camera' || webStatus === 'ready') {
-        return <View pointerEvents="none" style={styles.cameraSpacer} />;
+        return null;
     }
     const isError = webStatus === 'error';
     return (
@@ -641,6 +663,8 @@ export function WorkoutLiveScreen() {
         feedback: 'Press Play when your full body is visible.',
         progress: 0,
         formName: 'Correct',
+        formConfidence: null,
+        formSource: null,
         confidence: 0,
     }, [
         currentSession?.latestMetrics,
@@ -866,7 +890,33 @@ export function WorkoutLiveScreen() {
                     ? Math.max(0, now - lastLandmarkSentAtRef.current)
                     : 0;
                 const serverFps = countRecent(metricsTimesRef.current, now);
-                if (now - lastUiUpdateAtRef.current < UI_UPDATE_INTERVAL_MS) {
+                const nextMetrics = {
+                    count: payload.count,
+                    rawCount: payload.rawCount ?? payload.count,
+                    measurementType: payload.measurementType || currentSession?.config?.measurementType,
+                    measurementLabel: payload.measurementLabel || currentSession?.config?.metricLabel,
+                    holdDurationSec: payload.holdDurationSec,
+                    totalHoldTimeSec: payload.totalHoldTimeSec,
+                    bestHoldSec: payload.bestHoldSec,
+                    completedHolds: payload.completedHolds,
+                    state: payload.state,
+                    angle: Number(payload.angle ?? 180),
+                    feedback: payload.feedback || 'Keep going.',
+                    progress: Number(payload.progress ?? 0),
+                    formName: payload.formName || 'Correct',
+                    formConfidence: Number.isFinite(Number(payload.formConfidence))
+                        ? Number(payload.formConfidence)
+                        : null,
+                    formProbabilities: payload.formProbabilities || null,
+                    formSource: payload.formSource || null,
+                    confidence: Number(payload.confidence ?? 0),
+                };
+                const previousMetrics = metricsRef.current || {};
+                const countChanged = Number(nextMetrics.rawCount ?? nextMetrics.count) !== Number(
+                    previousMetrics.rawCount ?? previousMetrics.count ?? 0,
+                );
+                const phaseChanged = String(nextMetrics.state || '') !== String(previousMetrics.state || '');
+                if (!countChanged && !phaseChanged && now - lastUiUpdateAtRef.current < UI_UPDATE_INTERVAL_MS) {
                     setPerfStats((prev) => ({
                         ...prev,
                         serverFps,
@@ -882,22 +932,7 @@ export function WorkoutLiveScreen() {
                     uiFps: countRecent(uiTimesRef.current, now),
                     latencyMs,
                 }));
-                updateMetrics({
-                    count: payload.count,
-                    rawCount: payload.rawCount ?? payload.count,
-                    measurementType: payload.measurementType || currentSession?.config?.measurementType,
-                    measurementLabel: payload.measurementLabel || currentSession?.config?.metricLabel,
-                    holdDurationSec: payload.holdDurationSec,
-                    totalHoldTimeSec: payload.totalHoldTimeSec,
-                    bestHoldSec: payload.bestHoldSec,
-                    completedHolds: payload.completedHolds,
-                    state: payload.state,
-                    angle: Number(payload.angle ?? 180),
-                    feedback: payload.feedback || 'Keep going.',
-                    progress: Number(payload.progress ?? 0),
-                    formName: payload.formName || 'Correct',
-                    confidence: Number(payload.confidence ?? 0),
-                });
+                updateMetrics(nextMetrics);
                 speakVoiceCue(payload.voice);
             },
             onNoPose: () => {
@@ -1026,95 +1061,99 @@ export function WorkoutLiveScreen() {
         />
 
         <SafeAreaView pointerEvents="box-none" style={styles.overlay}>
-          {isDemoMode ? (
-            <View style={styles.demoStrip}>
-              <Text style={styles.demoStripText}>Demo metrics - not connected to live AI frames</Text>
-            </View>
-          ) : null}
+          <View pointerEvents="box-none" style={styles.topOverlay}>
+            {isDemoMode ? (
+              <View style={styles.demoStrip}>
+                <Text style={styles.demoStripText}>Demo metrics - not connected to live AI frames</Text>
+              </View>
+            ) : null}
 
-          <View style={styles.liveTopRow}>
-            <Pressable
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-              hitSlop={10}
-              onPress={leaveWorkout}
-              style={({ pressed }) => [styles.liveBackButton, pressed && styles.liveBackButtonPressed]}
-            >
-              <Ionicons name="chevron-back" size={23} color="#fff" />
-            </Pressable>
-            <View style={styles.liveTopHudWrap}>
-              <LiveTopHud
-                exerciseName={exerciseName}
-                difficulty={difficulty}
-                liveStatus={liveStatus}
-                webStatus={webStatus}
-                toneMeta={toneMeta}
-              />
+            <View style={styles.liveTopRow}>
+              <Pressable
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={leaveWorkout}
+                style={({ pressed }) => [styles.liveBackButton, pressed && styles.liveBackButtonPressed]}
+              >
+                <Ionicons name="chevron-back" size={23} color="#fff" />
+              </Pressable>
+              <View style={styles.liveTopHudWrap}>
+                <LiveTopHud
+                  exerciseName={exerciseName}
+                  difficulty={difficulty}
+                  liveStatus={liveStatus}
+                  webStatus={webStatus}
+                  toneMeta={toneMeta}
+                />
+              </View>
             </View>
           </View>
 
           <CameraStatusOverlay webStatus={webStatus} />
 
-          <View style={[styles.bottomPanel, { borderColor: toneMeta.border }]}>
-            {metrics.feedback ? (
-              <View style={[styles.feedbackCard, { backgroundColor: toneMeta.soft, borderColor: toneMeta.border }]}>
-                <Ionicons name={toneMeta.icon} size={18} color={toneMeta.color} />
-                <Text style={[styles.feedbackText, { color: feedbackTone(metrics.feedback) }]} numberOfLines={2}>
-                  {metrics.feedback}
-                </Text>
-              </View>
-            ) : null}
+          <View pointerEvents="box-none" style={styles.bottomOverlay}>
+            <View style={[styles.bottomPanel, { borderColor: toneMeta.border }]}>
+              {metrics.feedback ? (
+                <View style={[styles.feedbackCard, { backgroundColor: toneMeta.soft, borderColor: toneMeta.border }]}>
+                  <Ionicons name={toneMeta.icon} size={18} color={toneMeta.color} />
+                  <Text style={[styles.feedbackText, { color: feedbackTone(metrics.feedback) }]} numberOfLines={2}>
+                    {metrics.feedback}
+                  </Text>
+                </View>
+              ) : null}
 
-            <View style={styles.mainMetricRow}>
-              <View style={styles.repBlock}>
-                <Text style={styles.repLabel}>{metricLabel}</Text>
-                <Text style={styles.repValue}>{primaryValue}</Text>
-                <Text style={styles.repTarget} numberOfLines={1}>
-                  {targetValue > 0 ? `Target ${targetValue} ${metricLabel.toLowerCase()}` : 'No target set'}
-                </Text>
+              <View style={styles.mainMetricRow}>
+                <View style={styles.repBlock}>
+                  <Text style={styles.repLabel}>{metricLabel}</Text>
+                  <Text style={styles.repValue}>{primaryValue}</Text>
+                  <Text style={styles.repTarget} numberOfLines={1}>
+                    {targetValue > 0 ? `Target ${targetValue} ${metricLabel.toLowerCase()}` : 'No target set'}
+                  </Text>
+                </View>
+                <View style={styles.sideMetrics}>
+                  <MiniMetric icon="body-outline" label="Phase" value={String(metrics.state || 'idle')} />
+                  <MiniMetric
+                    icon="analytics-outline"
+                    label="Angle"
+                    value={`${Number(metrics.angle ?? 0).toFixed(0)} deg`}
+                  />
+                </View>
               </View>
-              <View style={styles.sideMetrics}>
-                <MiniMetric icon="body-outline" label="Phase" value={String(metrics.state || 'idle')} />
-                <MiniMetric
-                  icon="analytics-outline"
-                  label="Angle"
-                  value={`${Number(metrics.angle ?? 0).toFixed(0)} deg`}
+
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressText}>Motion quality</Text>
+                <Text style={[styles.progressText, { color: progressColor }]}>{progressPct}%</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                      styles.progressFill,
+                      { width: `${progressPct}%`, backgroundColor: progressColor },
+                  ]}
                 />
               </View>
-            </View>
 
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressText}>Motion quality</Text>
-              <Text style={[styles.progressText, { color: progressColor }]}>{progressPct}%</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                    styles.progressFill,
-                    { width: `${progressPct}%`, backgroundColor: progressColor },
-                ]}
-              />
-            </View>
+              {latestError ? <Text style={styles.errorText} numberOfLines={2}>{latestError}</Text> : null}
 
-            {latestError ? <Text style={styles.errorText} numberOfLines={2}>{latestError}</Text> : null}
-
-            <View style={styles.controls}>
-              <Pressable style={styles.controlButton} onPress={start}>
-                <Ionicons name={isRunning ? 'refresh' : 'play'} size={16} color={colors.textPrimary} />
-                <Text style={styles.controlText}>{isRunning ? 'Restart' : 'Play'}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.controlButton, !isRunning && styles.controlButtonDisabled]}
-                onPress={pause}
-                disabled={!isRunning}
-              >
-                <Ionicons name="pause" size={16} color={colors.textPrimary} />
-                <Text style={styles.controlText}>Pause</Text>
-              </Pressable>
-              <Pressable style={[styles.controlButton, styles.controlButtonDanger]} onPress={endSession}>
-                <Ionicons name="stop" size={16} color="#fff" />
-                <Text style={[styles.controlText, styles.controlTextDanger]}>End</Text>
-              </Pressable>
+              <View style={styles.controls}>
+                <Pressable style={styles.controlButton} onPress={start}>
+                  <Ionicons name={isRunning ? 'refresh' : 'play'} size={16} color={colors.textPrimary} />
+                  <Text style={styles.controlText}>{isRunning ? 'Restart' : 'Play'}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.controlButton, !isRunning && styles.controlButtonDisabled]}
+                  onPress={pause}
+                  disabled={!isRunning}
+                >
+                  <Ionicons name="pause" size={16} color={colors.textPrimary} />
+                  <Text style={styles.controlText}>Pause</Text>
+                </Pressable>
+                <Pressable style={[styles.controlButton, styles.controlButtonDanger]} onPress={endSession}>
+                  <Ionicons name="stop" size={16} color="#fff" />
+                  <Text style={[styles.controlText, styles.controlTextDanger]}>End</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </SafeAreaView>
@@ -1133,11 +1172,17 @@ const styles = StyleSheet.create({
         backgroundColor: '#000',
     },
     overlay: {
-        flex: 1,
+        ...StyleSheet.absoluteFillObject,
         justifyContent: 'space-between',
         paddingHorizontal: 10,
         paddingTop: 6,
         paddingBottom: 6,
+    },
+    topOverlay: {
+        gap: 6,
+    },
+    bottomOverlay: {
+        width: '100%',
     },
     liveTopRow: {
         flexDirection: 'row',
@@ -1150,7 +1195,7 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.18)',
-        backgroundColor: 'rgba(3, 7, 18, 0.58)',
+        backgroundColor: 'rgba(3, 7, 18, 0.46)',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -1168,7 +1213,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        backgroundColor: 'rgba(3, 7, 18, 0.58)',
+        backgroundColor: 'rgba(3, 7, 18, 0.46)',
         borderRadius: 999,
         paddingVertical: 6,
         paddingHorizontal: 10,
@@ -1207,29 +1252,31 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     bottomPanel: {
-        backgroundColor: 'rgba(3, 7, 18, 0.74)',
+        backgroundColor: 'rgba(3, 7, 18, 0.58)',
         borderRadius: 8,
         borderWidth: 1,
         padding: 10,
         gap: 8,
-    },
-    cameraSpacer: {
-        flex: 1,
-        minHeight: 80,
+        shadowColor: '#000',
+        shadowOpacity: 0.24,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 8,
     },
     cameraStatusWrap: {
-        flex: 1,
-        minHeight: 120,
+        position: 'absolute',
+        left: 18,
+        right: 18,
+        top: '35%',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 18,
     },
     cameraStatusCard: {
         maxWidth: 260,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.16)',
-        backgroundColor: 'rgba(3, 7, 18, 0.48)',
+        backgroundColor: 'rgba(3, 7, 18, 0.68)',
         paddingVertical: 12,
         paddingHorizontal: 14,
         alignItems: 'center',

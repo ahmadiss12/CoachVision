@@ -2,6 +2,9 @@
 opencv-python>=4.8.0
 mediapipe>=0.10.0
 numpy>=1.24.0
+xgboost>=2.1.4,<3.0
+scikit-learn>=1.6.0,<2.0
+pandas>=2.2.0,<3.0
 
 # Backend API (Option C)
 fastapi>=0.115.0

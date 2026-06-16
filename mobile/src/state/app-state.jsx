@@ -44,6 +44,8 @@ const defaultMetrics = {
     feedback: 'Start your set when ready.',
     progress: 0,
     formName: 'Correct',
+    formConfidence: null,
+    formSource: null,
     confidence: 0,
 };
 const defaultWorkoutPreferences = {

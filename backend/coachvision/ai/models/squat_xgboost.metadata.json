@@ -1,0 +1,102 @@
+{
+  "model_type": "XGBoost multi-class squat-form classifier",
+  "feature_names": [
+    "left_knee_angle",
+    "right_knee_angle",
+    "left_hip_angle",
+    "right_hip_angle",
+    "left_ankle_angle",
+    "right_ankle_angle",
+    "spine_angle",
+    "torso_lean",
+    "left_knee_lateral",
+    "right_knee_lateral",
+    "symmetry_score",
+    "hip_depth"
+  ],
+  "class_names": [
+    "Correct",
+    "Shallow",
+    "Forward Lean",
+    "Knees Caving",
+    "Heels Off",
+    "Asymmetric"
+  ],
+  "training_samples": 37953,
+  "test_samples": 9489,
+  "accuracy": 0.9018863947728949,
+  "macro_precision": 0.9044757204474462,
+  "macro_recall": 0.9018667605970926,
+  "macro_f1": 0.8997763971354619,
+  "classification_report": {
+    "Correct": {
+      "precision": 0.7722878625134264,
+      "recall": 0.90955091714105,
+      "f1-score": 0.8353180365959919,
+      "support": 1581.0
+    },
+    "Shallow": {
+      "precision": 0.8916666666666667,
+      "recall": 0.9475015812776724,
+      "f1-score": 0.9187365838699786,
+      "support": 1581.0
+    },
+    "Forward Lean": {
+      "precision": 0.954983922829582,
+      "recall": 0.938685208596713,
+      "f1-score": 0.9467644246094995,
+      "support": 1582.0
+    },
+    "Knees Caving": {
+      "precision": 0.9758576874205845,
+      "recall": 0.9709228824273072,
+      "f1-score": 0.973384030418251,
+      "support": 1582.0
+    },
+    "Heels Off": {
+      "precision": 0.9646182495344506,
+      "recall": 0.9823008849557522,
+      "f1-score": 0.9733792671468838,
+      "support": 1582.0
+    },
+    "Asymmetric": {
+      "precision": 0.8674399337199669,
+      "recall": 0.6622390891840607,
+      "f1-score": 0.7510760401721664,
+      "support": 1581.0
+    },
+    "accuracy": 0.9018863947728949,
+    "macro avg": {
+      "precision": 0.9044757204474462,
+      "recall": 0.9018667605970926,
+      "f1-score": 0.8997763971354619,
+      "support": 9489.0
+    },
+    "weighted avg": {
+      "precision": 0.9044949039966549,
+      "recall": 0.9018863947728949,
+      "f1-score": 0.8997968627831348,
+      "support": 9489.0
+    }
+  },
+  "single_sample_latency": {
+    "median_ms": 0.39759999981470173,
+    "p95_ms": 0.6701699998984622
+  },
+  "training_seconds": 5.063847200000055,
+  "parameters": {
+    "n_estimators": 100,
+    "max_depth": 10,
+    "learning_rate": 0.05,
+    "subsample": 1.0,
+    "colsample_bytree": 1.0,
+    "objective": "multi:softprob",
+    "num_class": 6,
+    "eval_metric": "mlogloss",
+    "random_state": 42,
+    "n_jobs": -1,
+    "tree_method": "hist"
+  },
+  "dataset_sha256": "d29a7d0bbce4df5f71a196a1a61c23bc1cf23168c311ad6e98e626039540c5fa",
+  "notes": "The source-video frame column is excluded because it is metadata and is not available with equivalent semantics during live inference."
+}
