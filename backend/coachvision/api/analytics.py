@@ -1,7 +1,7 @@
 """Analytics endpoints for dashboard/history."""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .deps import get_current_user
@@ -12,30 +12,29 @@ from ..db.session import get_db
 router = APIRouter(prefix="/analytics")
 
 
+def _overview(db: Session, user_id, exercise_id: str | None = None) -> AnalyticsOverviewResponse:
+    query = select(
+        func.count(WorkoutSession.id),
+        func.count(case((WorkoutSession.status == "completed", 1))),
+        func.avg(WorkoutSession.avg_form_score),
+    ).where(WorkoutSession.user_id == user_id)
+    if exercise_id is not None:
+        query = query.where(WorkoutSession.exercise_id == exercise_id)
+
+    total, completed, avg_form = db.execute(query).one()
+    return AnalyticsOverviewResponse(
+        totalSessions=int(total or 0),
+        completedSessions=int(completed or 0),
+        avgFormScore=float(avg_form) if avg_form is not None else None,
+    )
+
+
 @router.get("/overview", response_model=AnalyticsOverviewResponse)
 def analytics_overview(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AnalyticsOverviewResponse:
-    total_sessions = db.query(func.count(WorkoutSession.id)).filter(
-        WorkoutSession.user_id == current_user.id
-    ).scalar() or 0
-
-    completed_sessions = db.query(func.count(WorkoutSession.id)).filter(
-        WorkoutSession.user_id == current_user.id,
-        WorkoutSession.status == "completed",
-    ).scalar() or 0
-
-    avg_form_score = db.query(func.avg(WorkoutSession.avg_form_score)).filter(
-        WorkoutSession.user_id == current_user.id,
-        WorkoutSession.avg_form_score.is_not(None),
-    ).scalar()
-
-    return AnalyticsOverviewResponse(
-        totalSessions=int(total_sessions),
-        completedSessions=int(completed_sessions),
-        avgFormScore=float(avg_form_score) if avg_form_score is not None else None,
-    )
+    return _overview(db, current_user.id)
 
 
 @router.get("/exercise/{exercise_id}", response_model=AnalyticsOverviewResponse)
@@ -44,26 +43,4 @@ def analytics_exercise(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AnalyticsOverviewResponse:
-    total_sessions = db.query(func.count(WorkoutSession.id)).filter(
-        WorkoutSession.user_id == current_user.id,
-        WorkoutSession.exercise_id == exercise_id,
-    ).scalar() or 0
-
-    completed_sessions = db.query(func.count(WorkoutSession.id)).filter(
-        WorkoutSession.user_id == current_user.id,
-        WorkoutSession.exercise_id == exercise_id,
-        WorkoutSession.status == "completed",
-    ).scalar() or 0
-
-    avg_form_score = db.query(func.avg(WorkoutSession.avg_form_score)).filter(
-        WorkoutSession.user_id == current_user.id,
-        WorkoutSession.exercise_id == exercise_id,
-        WorkoutSession.avg_form_score.is_not(None),
-    ).scalar()
-
-    return AnalyticsOverviewResponse(
-        totalSessions=int(total_sessions),
-        completedSessions=int(completed_sessions),
-        avgFormScore=float(avg_form_score) if avg_form_score is not None else None,
-    )
-
+    return _overview(db, current_user.id, exercise_id)

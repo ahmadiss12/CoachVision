@@ -1,11 +1,16 @@
 """Database bootstrap helpers for local development."""
 
-from sqlalchemy import inspect, select, text
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import select
 
 from ..core.security import hash_password
-from .base import Base
 from .models import Exercise, User
-from .session import engine, SessionLocal
+from .session import SessionLocal
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 ADMIN_USER_SEED: dict[str, str] = {
     "email": "admin@coachvision.test",
@@ -29,56 +34,15 @@ EXERCISE_SEEDS: list[dict[str, str]] = [
 ]
 
 
-def _ensure_user_profile_columns() -> None:
-    inspector = inspect(engine)
-    try:
-        existing = {col["name"] for col in inspector.get_columns("users")}
-    except Exception:  # noqa: BLE001
-        return
-
-    statements: list[str] = []
-    if "date_of_birth" not in existing:
-        statements.append("ALTER TABLE users ADD COLUMN date_of_birth DATE")
-    if "height_cm" not in existing:
-        statements.append("ALTER TABLE users ADD COLUMN height_cm NUMERIC(5, 2)")
-    if "weight_kg" not in existing:
-        statements.append("ALTER TABLE users ADD COLUMN weight_kg NUMERIC(6, 2)")
-    if "body_fat_percent" not in existing:
-        statements.append("ALTER TABLE users ADD COLUMN body_fat_percent NUMERIC(5, 2)")
-
-    if not statements:
-        return
-
-    with engine.begin() as conn:
-        for stmt in statements:
-            conn.execute(text(stmt))
-
-
-def _ensure_session_load_columns() -> None:
-    inspector = inspect(engine)
-    try:
-        existing = {col["name"] for col in inspector.get_columns("sessions")}
-    except Exception:  # noqa: BLE001
-        return
-
-    statements: list[str] = []
-    if "external_load_kg" not in existing:
-        statements.append("ALTER TABLE sessions ADD COLUMN external_load_kg NUMERIC(6, 2)")
-    if "body_weight_kg" not in existing:
-        statements.append("ALTER TABLE sessions ADD COLUMN body_weight_kg NUMERIC(6, 2)")
-
-    if not statements:
-        return
-
-    with engine.begin() as conn:
-        for stmt in statements:
-            conn.execute(text(stmt))
+def run_migrations() -> None:
+    """Apply Alembic migrations up to head."""
+    alembic_cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+    command.upgrade(alembic_cfg, "head")
 
 
 def bootstrap_database() -> None:
-    Base.metadata.create_all(bind=engine)
-    _ensure_user_profile_columns()
-    _ensure_session_load_columns()
+    run_migrations()
 
     db = SessionLocal()
     try:

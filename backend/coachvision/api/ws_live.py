@@ -34,6 +34,46 @@ def _j(payload: dict[str, Any]) -> dict[str, Any]:
     return {"schemaVersion": SCHEMA_VERSION, **payload}
 
 
+async def _send_error(
+    websocket: WebSocket,
+    session_id: str | None,
+    message: str,
+    code: str,
+) -> None:
+    await websocket.send_json(
+        _j({"type": "error", "sessionId": session_id, "message": message, "code": code})
+    )
+
+
+def _metrics_message(result: dict[str, Any]) -> dict[str, Any]:
+    return _j(
+        {
+            "type": "metrics",
+            "sessionId": result["session_id"],
+            "count": result["count"],
+            "rawCount": result.get("raw_count"),
+            "measurementType": result.get("measurement_type"),
+            "measurementLabel": result.get("measurement_label"),
+            "holdDurationSec": result.get("hold_duration_sec"),
+            "totalHoldTimeSec": result.get("total_hold_time_sec"),
+            "bestHoldSec": result.get("best_hold_sec"),
+            "completedHolds": result.get("completed_holds"),
+            "state": result["state"],
+            "angle": result["angle"],
+            "feedback": result["feedback"],
+            "progress": result["progress"],
+            "formName": result["form_name"],
+            "formConfidence": result.get("form_confidence"),
+            "formProbabilities": result.get("form_probabilities"),
+            "formSource": result.get("form_source"),
+            "confidence": result["confidence"],
+            "pose": result.get("pose"),
+            "voice": result.get("voice"),
+            "serverTimingMs": result.get("timing_ms"),
+        }
+    )
+
+
 def _optional_bounded_float(value: Any, *, min_value: float, max_value: float) -> float | None:
     if value in (None, ""):
         return None
@@ -53,6 +93,14 @@ def _first_value(payload: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _authenticate(token: str) -> UUID:
+    """Decode the access token and return the user id; raises on any problem."""
+    payload = decode_token(token)
+    if payload.get("token_type") != "access":
+        raise ValueError("Invalid token type")
+    return UUID(str(payload["sub"]))
+
+
 @router.websocket("/ws/live")
 async def websocket_live(
     websocket: WebSocket,
@@ -66,32 +114,9 @@ async def websocket_live(
 
     try:
         try:
-            payload = decode_token(token)
-            if payload.get("token_type") != "access":
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "error",
-                            "sessionId": None,
-                            "message": "Invalid token type",
-                            "code": WsErrorCode.INVALID_TOKEN,
-                        }
-                    )
-                )
-                await websocket.close(code=4401)
-                return
-            user_uuid = UUID(str(payload["sub"]))
+            user_uuid = _authenticate(token)
         except Exception as exc:  # noqa: BLE001
-            await websocket.send_json(
-                _j(
-                    {
-                        "type": "error",
-                        "sessionId": None,
-                        "message": str(exc),
-                        "code": WsErrorCode.INVALID_TOKEN,
-                    }
-                )
-            )
+            await _send_error(websocket, None, str(exc), WsErrorCode.INVALID_TOKEN)
             await websocket.close(code=4401)
             return
 
@@ -100,15 +125,11 @@ async def websocket_live(
             try:
                 msg: dict[str, Any] = json.loads(raw)
             except json.JSONDecodeError:
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "error",
-                            "sessionId": session_state.session_id if session_state else None,
-                            "message": "invalid_json",
-                            "code": WsErrorCode.BAD_MESSAGE,
-                        }
-                    )
+                await _send_error(
+                    websocket,
+                    session_state.session_id if session_state else None,
+                    "invalid_json",
+                    WsErrorCode.BAD_MESSAGE,
                 )
                 continue
 
@@ -116,15 +137,11 @@ async def websocket_live(
 
             if mtype == "start":
                 if session_state is not None:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "session_already_active",
-                                "code": WsErrorCode.ALREADY_ACTIVE,
-                            }
-                        )
+                    await _send_error(
+                        websocket,
+                        session_state.session_id,
+                        "session_already_active",
+                        WsErrorCode.ALREADY_ACTIVE,
                     )
                     continue
 
@@ -166,43 +183,25 @@ async def websocket_live(
                     try:
                         rest_uuid = UUID(str(rest_sid))
                     except (ValueError, TypeError):
-                        await websocket.send_json(
-                            _j(
-                                {
-                                    "type": "error",
-                                    "sessionId": None,
-                                    "message": "invalid_sessionId",
-                                    "code": WsErrorCode.BAD_MESSAGE,
-                                }
-                            )
+                        await _send_error(
+                            websocket, None, "invalid_sessionId", WsErrorCode.BAD_MESSAGE
                         )
                         continue
 
                 try:
                     ExerciseType.from_string(exercise_name)
                 except ValueError as exc:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": None,
-                                "message": str(exc),
-                                "code": WsErrorCode.UNSUPPORTED_EXERCISE,
-                            }
-                        )
+                    await _send_error(
+                        websocket, None, str(exc), WsErrorCode.UNSUPPORTED_EXERCISE
                     )
                     continue
 
                 if difficulty not in CONFIG_PRESETS:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": None,
-                                "message": f"Invalid difficulty: {difficulty}",
-                                "code": WsErrorCode.BAD_DIFFICULTY,
-                            }
-                        )
+                    await _send_error(
+                        websocket,
+                        None,
+                        f"Invalid difficulty: {difficulty}",
+                        WsErrorCode.BAD_DIFFICULTY,
                     )
                     continue
 
@@ -219,15 +218,8 @@ async def websocket_live(
                     body_weight_kg=body_weight_kg,
                 )
                 if err or workout is None:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": None,
-                                "message": err or "start_failed",
-                                "code": err or WsErrorCode.START_FAILED,
-                            }
-                        )
+                    await _send_error(
+                        websocket, None, err or "start_failed", err or WsErrorCode.START_FAILED
                     )
                     continue
 
@@ -241,47 +233,29 @@ async def websocket_live(
                 except ValueError as exc:
                     abort_active_workout(db, workout)
                     db_workout = None
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": str(workout.id),
-                                "message": str(exc),
-                                "code": WsErrorCode.UNSUPPORTED_EXERCISE,
-                            }
-                        )
+                    await _send_error(
+                        websocket, str(workout.id), str(exc), WsErrorCode.UNSUPPORTED_EXERCISE
                     )
                     continue
                 await websocket.send_json(_j({"type": "started", "sessionId": str(workout.id)}))
                 continue
 
             if session_state is None:
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "error",
-                            "sessionId": None,
-                            "message": "send_start_first",
-                            "code": WsErrorCode.NO_SESSION,
-                        }
-                    )
+                await _send_error(websocket, None, "send_start_first", WsErrorCode.NO_SESSION)
+                continue
+
+            if msg.get("sessionId") != session_state.session_id and mtype in (
+                "pose",
+                "frame",
+                "reset",
+                "end",
+            ):
+                await _send_error(
+                    websocket, session_state.session_id, "session_mismatch", WsErrorCode.NO_SESSION
                 )
                 continue
 
             if mtype == "pose":
-                if msg.get("sessionId") != session_state.session_id:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "session_mismatch",
-                                "code": WsErrorCode.NO_SESSION,
-                            }
-                        )
-                    )
-                    continue
-
                 timestamp_ms = msg.get("timestampMs")
                 if not isinstance(timestamp_ms, int):
                     timestamp_ms = None
@@ -299,77 +273,26 @@ async def websocket_live(
                 )
 
                 if result["kind"] == "error":
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": result["message"],
-                                "code": result["code"],
-                            }
-                        )
+                    await _send_error(
+                        websocket, session_state.session_id, result["message"], result["code"]
                     )
                     continue
 
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "metrics",
-                            "sessionId": result["session_id"],
-                            "count": result["count"],
-                            "rawCount": result.get("raw_count"),
-                            "measurementType": result.get("measurement_type"),
-                            "measurementLabel": result.get("measurement_label"),
-                            "holdDurationSec": result.get("hold_duration_sec"),
-                            "totalHoldTimeSec": result.get("total_hold_time_sec"),
-                            "bestHoldSec": result.get("best_hold_sec"),
-                            "completedHolds": result.get("completed_holds"),
-                            "state": result["state"],
-                            "angle": result["angle"],
-                            "feedback": result["feedback"],
-                            "progress": result["progress"],
-                            "formName": result["form_name"],
-                            "formConfidence": result.get("form_confidence"),
-                            "formProbabilities": result.get("form_probabilities"),
-                            "formSource": result.get("form_source"),
-                            "confidence": result["confidence"],
-                            "pose": result.get("pose"),
-                            "voice": result.get("voice"),
-                            "serverTimingMs": result.get("timing_ms"),
-                        }
-                    )
-                )
+                await websocket.send_json(_metrics_message(result))
                 continue
 
             if mtype == "frame":
-                if msg.get("sessionId") != session_state.session_id:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "session_mismatch",
-                                "code": WsErrorCode.NO_SESSION,
-                            }
-                        )
-                    )
-                    continue
-
                 timestamp_ms = msg.get("timestampMs")
                 if not isinstance(timestamp_ms, int):
                     timestamp_ms = None
 
                 b64 = msg.get("imageJpegBase64")
                 if not b64 or not isinstance(b64, str):
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "missing_imageJpegBase64",
-                                "code": WsErrorCode.BAD_MESSAGE,
-                            }
-                        )
+                    await _send_error(
+                        websocket,
+                        session_state.session_id,
+                        "missing_imageJpegBase64",
+                        WsErrorCode.BAD_MESSAGE,
                     )
                     continue
                 result = await asyncio.to_thread(
@@ -380,15 +303,8 @@ async def websocket_live(
                 )
 
                 if result["kind"] == "error":
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": result["message"],
-                                "code": result["code"],
-                            }
-                        )
+                    await _send_error(
+                        websocket, session_state.session_id, result["message"], result["code"]
                     )
                     continue
 
@@ -404,49 +320,10 @@ async def websocket_live(
                     )
                     continue
 
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "metrics",
-                            "sessionId": result["session_id"],
-                            "count": result["count"],
-                            "rawCount": result.get("raw_count"),
-                            "measurementType": result.get("measurement_type"),
-                            "measurementLabel": result.get("measurement_label"),
-                            "holdDurationSec": result.get("hold_duration_sec"),
-                            "totalHoldTimeSec": result.get("total_hold_time_sec"),
-                            "bestHoldSec": result.get("best_hold_sec"),
-                            "completedHolds": result.get("completed_holds"),
-                            "state": result["state"],
-                            "angle": result["angle"],
-                            "feedback": result["feedback"],
-                            "progress": result["progress"],
-                            "formName": result["form_name"],
-                            "formConfidence": result.get("form_confidence"),
-                            "formProbabilities": result.get("form_probabilities"),
-                            "formSource": result.get("form_source"),
-                            "confidence": result["confidence"],
-                            "pose": result.get("pose"),
-                            "voice": result.get("voice"),
-                            "serverTimingMs": result.get("timing_ms"),
-                        }
-                    )
-                )
+                await websocket.send_json(_metrics_message(result))
                 continue
 
             if mtype == "reset":
-                if msg.get("sessionId") != session_state.session_id:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "session_mismatch",
-                                "code": WsErrorCode.NO_SESSION,
-                            }
-                        )
-                    )
-                    continue
                 session_state.reset_counters()
                 await websocket.send_json(
                     _j({"type": "resetAck", "sessionId": session_state.session_id})
@@ -454,18 +331,6 @@ async def websocket_live(
                 continue
 
             if mtype == "end":
-                if msg.get("sessionId") != session_state.session_id:
-                    await websocket.send_json(
-                        _j(
-                            {
-                                "type": "error",
-                                "sessionId": session_state.session_id,
-                                "message": "session_mismatch",
-                                "code": WsErrorCode.NO_SESSION,
-                            }
-                        )
-                    )
-                    continue
                 summary = session_state.dispatcher.export_session_data()
                 wid = UUID(session_state.session_id)
                 row = db.get(WorkoutSession, wid)
@@ -484,15 +349,11 @@ async def websocket_live(
                 db_workout = None
                 continue
 
-            await websocket.send_json(
-                _j(
-                    {
-                        "type": "error",
-                        "sessionId": session_state.session_id,
-                        "message": f"unknown_type:{mtype}",
-                        "code": WsErrorCode.BAD_MESSAGE,
-                    }
-                )
+            await _send_error(
+                websocket,
+                session_state.session_id,
+                f"unknown_type:{mtype}",
+                WsErrorCode.BAD_MESSAGE,
             )
 
     except WebSocketDisconnect:

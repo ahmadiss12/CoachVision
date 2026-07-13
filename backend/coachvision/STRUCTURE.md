@@ -15,7 +15,6 @@ python -m uvicorn coachvision.main:app --reload --host 0.0.0.0 --port 8001
 - `services/`: session persistence, feedback, fatigue prediction, gamification.
 - `realtime/`: live pose metric pipeline and WebSocket contract helpers.
 - `ai/`: exercise counters, geometry utilities, voice cue rules.
-- `repositories/`: minimal repository base for future persistence refactors.
 - `infrastructure/sql/`: reference SQL schema and design docs.
 - `tests/`: backend unit tests.
 
