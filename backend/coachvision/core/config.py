@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_exp_minutes: int = 30
     refresh_token_exp_days: int = 7
+    # Seeded admin account. Outside development the account is only created
+    # when BOTH values are explicitly provided via environment variables.
+    admin_seed_email: str = "admin@coachvision.test"
+    admin_seed_password: str = "Admin1234"
 
     @model_validator(mode="after")
     def require_secure_jwt_secret(self) -> "Settings":

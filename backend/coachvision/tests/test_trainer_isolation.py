@@ -183,6 +183,106 @@ class TrainerIsolationTest(unittest.TestCase):
         me = client.get("/v1/users/me", headers=self.client_c).json()
         self.assertEqual(me["role"], "client")
 
+    def test_10_admin_cannot_be_self_registered(self) -> None:
+        resp = client.post(
+            "/v1/auth/register",
+            json={
+                "email": "sneaky@test.dev",
+                "password": "secret123",
+                "display_name": "sneaky",
+                "role": "admin",
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_11_only_admin_can_change_roles(self) -> None:
+        # Promote a user directly in the DB to act as admin.
+        from coachvision.core.security import hash_password
+
+        db = TestingSessionLocal()
+        admin_row = User(
+            email="admin@test.dev",
+            password_hash=hash_password("secret123"),
+            display_name="admin",
+            role="admin",
+        )
+        db.add(admin_row)
+        db.commit()
+        client_d_row = db.query(User).filter_by(email="client.d@test.dev").one()
+        client_d_id = str(client_d_row.id)
+        db.close()
+
+        login = client.post(
+            "/v1/auth/login", json={"email": "admin@test.dev", "password": "secret123"}
+        )
+        admin_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        # Non-admins are rejected.
+        resp = client.patch(
+            f"/v1/admin/users/{client_d_id}/role",
+            json={"role": "trainer"},
+            headers=self.trainer_a,
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        # Admin can promote client D to trainer and back.
+        resp = client.patch(
+            f"/v1/admin/users/{client_d_id}/role",
+            json={"role": "trainer"},
+            headers=admin_headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["role"], "trainer")
+
+        resp = client.patch(
+            f"/v1/admin/users/{client_d_id}/role",
+            json={"role": "client"},
+            headers=admin_headers,
+        )
+        self.assertEqual(resp.json()["role"], "client")
+
+    def test_12_demoted_trainer_loses_client_links(self) -> None:
+        from coachvision.core.security import hash_password
+
+        self._link_c_to_a()
+
+        db = TestingSessionLocal()
+        admin_row = db.query(User).filter_by(email="admin2@test.dev").one_or_none()
+        if admin_row is None:
+            db.add(
+                User(
+                    email="admin2@test.dev",
+                    password_hash=hash_password("secret123"),
+                    display_name="admin2",
+                    role="admin",
+                )
+            )
+            db.commit()
+        trainer_a_row = db.query(User).filter_by(email="trainer.a@test.dev").one()
+        trainer_a_id = str(trainer_a_row.id)
+        db.close()
+
+        login = client.post(
+            "/v1/auth/login", json={"email": "admin2@test.dev", "password": "secret123"}
+        )
+        admin_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        resp = client.patch(
+            f"/v1/admin/users/{trainer_a_id}/role",
+            json={"role": "client"},
+            headers=admin_headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        # Restore trainer role, then confirm the old links stayed ended.
+        client.patch(
+            f"/v1/admin/users/{trainer_a_id}/role",
+            json={"role": "trainer"},
+            headers=admin_headers,
+        )
+        roster = client.get("/v1/trainer/clients", headers=self.trainer_a).json()
+        self.assertEqual(roster, [])
+
 
 if __name__ == "__main__":
     unittest.main()

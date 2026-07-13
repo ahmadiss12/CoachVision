@@ -57,6 +57,20 @@ class UpdateUserMeRequest(BaseModel):
     locale: str | None = None
 
 
+class AdminUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    email: str
+    display_name: str = Field(alias="displayName")
+    role: str
+    created_at: datetime = Field(alias="createdAt")
+
+
+class UpdateRoleRequest(BaseModel):
+    role: str = Field(pattern="^(client|trainer|admin)$")
+
+
 class InviteCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
