@@ -1,5 +1,7 @@
 """Authentication endpoints."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,13 +30,14 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenPa
         email=payload.email.lower().strip(),
         password_hash=hash_password(payload.password),
         display_name=payload.display_name.strip(),
+        role=payload.role,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
     return TokenPair(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), {"role": user.role}),
         refresh_token=create_refresh_token(str(user.id)),
     )
 
@@ -65,13 +68,13 @@ async def login(request: Request, db: Session = Depends(get_db)) -> TokenPair:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     return TokenPair(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), {"role": user.role}),
         refresh_token=create_refresh_token(str(user.id)),
     )
 
 
 @router.post("/refresh", response_model=TokenPair)
-def refresh(payload: RefreshRequest) -> TokenPair:
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenPair:
     try:
         token_data = decode_token(payload.refresh_token)
         if token_data.get("token_type") != "refresh":
@@ -80,8 +83,12 @@ def refresh(payload: RefreshRequest) -> TokenPair:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
 
+    user = db.get(User, UUID(user_id))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
     return TokenPair(
-        access_token=create_access_token(user_id),
+        access_token=create_access_token(user_id, {"role": user.role}),
         refresh_token=create_refresh_token(user_id),
     )
 

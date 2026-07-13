@@ -66,6 +66,7 @@ def bootstrap_database() -> None:
                     email=ADMIN_USER_SEED["email"],
                     password_hash=hash_password(ADMIN_USER_SEED["password"]),
                     display_name=ADMIN_USER_SEED["display_name"],
+                    role="admin",
                 )
             )
 

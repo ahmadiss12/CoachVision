@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
@@ -27,6 +27,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(
+        Enum("client", "trainer", "admin", name="user_role"),
+        default="client",
+        nullable=False,
+    )
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
     date_of_birth: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     height_cm: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
@@ -42,6 +47,58 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+
+
+class TrainerClient(Base):
+    """Active coaching relationship between a trainer and a client."""
+
+    __tablename__ = "trainer_clients"
+    __table_args__ = (
+        UniqueConstraint("trainer_id", "client_id", name="uq_trainer_clients_pair"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    trainer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    client_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        Enum("active", "ended", name="trainer_client_status"),
+        default="active",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ClientInvite(Base):
+    """Single-use invite code a trainer sends to onboard a client."""
+
+    __tablename__ = "client_invites"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    trainer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum("pending", "accepted", "revoked", "expired", name="invite_status"),
+        default="pending",
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    accepted_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class BodyMetric(Base):

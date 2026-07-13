@@ -30,3 +30,21 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 
+
+def require_role(*roles: str):
+    """Dependency factory: only allow users whose role is in ``roles``.
+
+    The role is read from the database row (via get_current_user), not the JWT
+    claim, so a role change takes effect immediately without reissuing tokens.
+    """
+
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires role: {', '.join(roles)}",
+            )
+        return current_user
+
+    return dependency
+

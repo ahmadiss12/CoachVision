@@ -18,6 +18,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str = Field(min_length=6)
     display_name: str = Field(min_length=1, max_length=80)
+    role: str = Field(default="client", pattern="^(client|trainer)$")
 
 
 class LoginRequest(BaseModel):
@@ -35,6 +36,7 @@ class UserMeResponse(BaseModel):
     id: UUID
     email: str
     display_name: str
+    role: str
     avatar_url: str | None = None
     date_of_birth: date | None = None
     height_cm: float | None = None
@@ -53,6 +55,49 @@ class UpdateUserMeRequest(BaseModel):
     body_fat_percent: float | None = Field(default=None, ge=0, le=70)
     timezone: str | None = None
     locale: str | None = None
+
+
+class InviteCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    email: str | None = Field(
+        default=None, description="Optional: restrict the invite to this email."
+    )
+    expires_in_days: int = Field(7, ge=1, le=30, alias="expiresInDays")
+
+
+class InviteResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    token: str
+    email: str | None = None
+    status: str
+    expires_at: datetime = Field(alias="expiresAt")
+    created_at: datetime = Field(alias="createdAt")
+    accepted_at: datetime | None = Field(default=None, alias="acceptedAt")
+
+
+class InviteAcceptRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class InviteAcceptResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    trainer_id: UUID = Field(alias="trainerId")
+    trainer_name: str = Field(alias="trainerName")
+    status: str
+
+
+class TrainerClientResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    client_id: UUID = Field(alias="clientId")
+    display_name: str = Field(alias="displayName")
+    email: str
+    status: str
+    linked_at: datetime = Field(alias="linkedAt")
 
 
 class BodyMetricCreateRequest(BaseModel):
