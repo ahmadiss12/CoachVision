@@ -27,5 +27,8 @@ export default function AppLayout() {
       <Stack.Screen name="workout-live"/>
       <Stack.Screen name="session-summary"/>
       <Stack.Screen name="history"/>
+      <Stack.Screen name="client-sessions"/>
+      <Stack.Screen name="client-session-detail"/>
+      <Stack.Screen name="my-coach"/>
     </Stack>);
 }

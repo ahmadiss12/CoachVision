@@ -379,6 +379,7 @@ export function AppStateProvider({ children }) {
     const register = async (input, optionalPassword) => {
         const email = typeof input === 'string' ? input : input?.email;
         const password = typeof input === 'string' ? optionalPassword : input?.password;
+        const role = typeof input === 'string' ? 'client' : input?.role || 'client';
         if (!email || !password) {
             setLatestError('Email and password are required.');
             return null;
@@ -390,6 +391,7 @@ export function AppStateProvider({ children }) {
                 email,
                 password,
                 displayName: inferredName,
+                role,
             });
             setTokensEverywhere(tokens);
             resetUserScopedState();
@@ -784,15 +786,20 @@ export function AppStateProvider({ children }) {
         }
     };
 
+    const userRole = authUser?.role || 'client';
+    const isClientRole = userRole === 'client';
+
     const value = {
         isAuthenticated: Boolean(authUser),
         authUser,
+        userRole,
         authTokens,
         profile,
         isHydrating,
-        needsOnboarding: Boolean(authUser) && !profile,
+        // Body-profile onboarding only makes sense for clients who work out.
+        needsOnboarding: Boolean(authUser) && isClientRole && !profile,
         goals,
-        needsGoalsOnboarding: Boolean(authUser) && Boolean(profile) && !goals,
+        needsGoalsOnboarding: Boolean(authUser) && isClientRole && Boolean(profile) && !goals,
         themeMode,
         workoutPreferences,
         isBusy,
@@ -808,6 +815,7 @@ export function AppStateProvider({ children }) {
         login,
         register,
         logout,
+        ensureFreshAccessToken,
         loadCurrentUser,
         loadHistory,
         loadBodyMetrics,

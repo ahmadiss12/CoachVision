@@ -160,6 +160,41 @@ class TrainerIsolationTest(unittest.TestCase):
         )
         self.assertEqual(unlinked.status_code, 404)
 
+    def test_07b_session_detail_requires_active_link(self) -> None:
+        self._link_c_to_a()
+
+        db = TestingSessionLocal()
+        client_c_row = db.query(User).filter_by(email="client.c@test.dev").one()
+        session_row = WorkoutSession(
+            user_id=client_c_row.id,
+            exercise_id="squat",
+            difficulty="intermediate",
+            status="completed",
+            total_reps=8,
+            target_sets=2,
+            target_reps=5,
+            ended_at=datetime.now(timezone.utc),
+        )
+        db.add(session_row)
+        db.commit()
+        client_c_id = str(client_c_row.id)
+        session_id = str(session_row.id)
+        db.close()
+
+        detail = client.get(
+            f"/v1/trainer/clients/{client_c_id}/sessions/{session_id}", headers=self.trainer_a
+        )
+        self.assertEqual(detail.status_code, 200, detail.text)
+        body = detail.json()
+        self.assertEqual(body["totalReps"], 8)
+        self.assertEqual(body["targetSets"], 2)
+        self.assertIn("repStats", body)
+
+        denied = client.get(
+            f"/v1/trainer/clients/{client_c_id}/sessions/{session_id}", headers=self.trainer_b
+        )
+        self.assertEqual(denied.status_code, 404)
+
     def test_08_ended_link_hides_client(self) -> None:
         self._link_c_to_a()
         db = TestingSessionLocal()
@@ -240,6 +275,49 @@ class TrainerIsolationTest(unittest.TestCase):
             headers=admin_headers,
         )
         self.assertEqual(resp.json()["role"], "client")
+
+    def test_13_admin_stats_and_delete(self) -> None:
+        from coachvision.core.security import hash_password
+
+        db = TestingSessionLocal()
+        if db.query(User).filter_by(email="admin3@test.dev").one_or_none() is None:
+            db.add(
+                User(
+                    email="admin3@test.dev",
+                    password_hash=hash_password("secret123"),
+                    display_name="admin3",
+                    role="admin",
+                )
+            )
+            db.commit()
+        admin_id = str(db.query(User).filter_by(email="admin3@test.dev").one().id)
+        db.close()
+
+        login = client.post(
+            "/v1/auth/login", json={"email": "admin3@test.dev", "password": "secret123"}
+        )
+        admin_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        # Stats are admin-only and return the expected shape.
+        denied = client.get("/v1/admin/stats", headers=self.trainer_a)
+        self.assertEqual(denied.status_code, 403)
+        stats = client.get("/v1/admin/stats", headers=admin_headers)
+        self.assertEqual(stats.status_code, 200, stats.text)
+        body = stats.json()
+        self.assertGreaterEqual(body["totalUsers"], 4)
+        self.assertIn("completedSessions", body)
+
+        # Admin cannot delete themselves.
+        resp = client.delete(f"/v1/admin/users/{admin_id}", headers=admin_headers)
+        self.assertEqual(resp.status_code, 400)
+
+        # Admin can delete another user; their login stops working.
+        victim_headers = _register("victim@test.dev", "client")
+        victim_id = client.get("/v1/users/me", headers=victim_headers).json()["id"]
+        resp = client.delete(f"/v1/admin/users/{victim_id}", headers=admin_headers)
+        self.assertEqual(resp.status_code, 204)
+        me = client.get("/v1/users/me", headers=victim_headers)
+        self.assertEqual(me.status_code, 401)
 
     def test_12_demoted_trainer_loses_client_links(self) -> None:
         from coachvision.core.security import hash_password

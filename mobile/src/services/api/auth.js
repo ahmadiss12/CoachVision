@@ -8,13 +8,14 @@ function normalizeTokenPair(payload) {
   };
 }
 
-export async function registerUser({ email, password, displayName }) {
+export async function registerUser({ email, password, displayName, role = 'client' }) {
   const payload = await apiRequest('/auth/register', {
     method: 'POST',
     body: {
       email,
       password,
       display_name: displayName,
+      role,
     },
   });
   return normalizeTokenPair(payload);

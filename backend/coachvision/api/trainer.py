@@ -14,16 +14,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from .deps import get_current_user, require_role
+from .reports import _exercise_name, _rep_stats, _to_float
 from .schemas import (
+    DailyReportSessionResponse,
     InviteAcceptRequest,
     InviteAcceptResponse,
     InviteCreateRequest,
     InviteResponse,
+    SessionFeedbackResponse,
     SessionResponse,
     TrainerClientResponse,
 )
-from ..db.models import ClientInvite, Session, TrainerClient, User
+from ..db.models import ClientInvite, Exercise, RepEvent, Session, SessionFeedback, TrainerClient, User
 from ..db.session import get_db
+
+_HOLD_EXERCISE_IDS = frozenset({"plank", "wall_sit"})
 
 router = APIRouter()
 
@@ -185,6 +190,66 @@ def client_sessions(
         .order_by(Session.ended_at.desc(), Session.created_at.desc())
     ).all()
     return [SessionResponse.model_validate(row) for row in rows]
+
+
+@router.get(
+    "/trainer/clients/{client_id}/sessions/{session_id}",
+    response_model=DailyReportSessionResponse,
+)
+def client_session_detail(
+    client_id: UUID,
+    session_id: UUID,
+    db: DbSession = Depends(get_db),
+    trainer: User = Depends(require_role("trainer")),
+) -> DailyReportSessionResponse:
+    """Full coaching breakdown of one client session.
+
+    Same shape as the client's own daily report entries: targets vs actual,
+    volume load, the generated form review (top errors + action items), and
+    aggregated per-rep quality stats (ROM, tempo, depth).
+    """
+    if _get_active_link(db, trainer.id, client_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    session = db.get(Session, session_id)
+    if not session or session.user_id != client_id or session.status != "completed":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    exercise = db.get(Exercise, session.exercise_id)
+    feedback = db.scalar(
+        select(SessionFeedback).where(SessionFeedback.session_id == session.id)
+    )
+    rep_rows = db.scalars(
+        select(RepEvent).where(RepEvent.session_id == session.id).order_by(RepEvent.rep_number)
+    ).all()
+
+    external_load = _to_float(session.external_load_kg)
+    uses_external_load = bool(external_load and external_load > 0)
+    estimated_volume_load = None
+    if uses_external_load and session.exercise_id not in _HOLD_EXERCISE_IDS and session.total_reps:
+        estimated_volume_load = round(external_load * session.total_reps, 2)
+
+    return DailyReportSessionResponse(
+        session_id=session.id,
+        exercise_id=session.exercise_id,
+        exercise_name=_exercise_name(
+            session.exercise_id, {exercise.id: exercise} if exercise else {}
+        ),
+        difficulty=session.difficulty,
+        target_sets=session.target_sets,
+        target_reps=session.target_reps,
+        total_reps=session.total_reps,
+        avg_form_score=_to_float(session.avg_form_score),
+        duration_seconds=session.duration_seconds,
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        external_load_kg=external_load,
+        body_weight_kg=_to_float(session.body_weight_kg),
+        uses_external_load=uses_external_load,
+        estimated_volume_load_kg=estimated_volume_load,
+        feedback=SessionFeedbackResponse.model_validate(feedback) if feedback else None,
+        rep_stats=_rep_stats(rep_rows),
+    )
 
 
 @router.delete("/trainer/clients/{client_id}", status_code=status.HTTP_204_NO_CONTENT)

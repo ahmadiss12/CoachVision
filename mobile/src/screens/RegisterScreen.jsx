@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -16,6 +16,7 @@ export function RegisterScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [role, setRole] = useState('client');
     const [formError, setFormError] = useState(null);
     const mismatch = Boolean(password && confirmPassword && password !== confirmPassword);
     const clearFormError = () => {
@@ -29,9 +30,13 @@ export function RegisterScreen() {
             setFormError(validationError);
             return;
         }
-        const user = await register({ email: email.trim(), password });
+        const user = await register({ email: email.trim(), password, role });
         if (user) {
-            router.replace('/(app)/onboarding-profile');
+            if (user.role === 'client') {
+                router.replace('/(app)/onboarding-profile');
+            } else {
+                router.replace('/(app)/(tabs)');
+            }
         }
     };
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
@@ -45,6 +50,24 @@ export function RegisterScreen() {
         </View>
 
         <Card style={styles.formCard}>
+          <View style={styles.roleRow}>
+            <RoleOption
+              icon="fitness-outline"
+              title="Client"
+              subtitle="Train with AI feedback"
+              selected={role === 'client'}
+              colors={colors}
+              onPress={() => setRole('client')}
+            />
+            <RoleOption
+              icon="clipboard-outline"
+              title="Trainer"
+              subtitle="Coach your clients"
+              selected={role === 'trainer'}
+              colors={colors}
+              onPress={() => setRole('trainer')}
+            />
+          </View>
           <Input
             icon="mail-outline"
             label="Email"
@@ -105,6 +128,25 @@ export function RegisterScreen() {
     </SafeAreaView>);
 }
 
+function RoleOption({ icon, title, subtitle, selected, colors, onPress }) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[
+            styles.roleOption,
+            {
+                backgroundColor: selected ? `${colors.brandAlt}1A` : colors.background,
+                borderColor: selected ? colors.brandAlt : colors.border,
+            },
+        ]}
+      >
+        <Ionicons name={icon} size={22} color={selected ? colors.brandAlt : colors.textSecondary} />
+        <Text style={[styles.roleTitle, { color: selected ? colors.brandAlt : colors.textPrimary }]}>{title}</Text>
+        <Text style={[styles.roleSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
+      </Pressable>
+    );
+}
+
 function InlineError({ message, colors }) {
     return (
       <View style={[styles.errorBox, { backgroundColor: `${colors.danger}18`, borderColor: `${colors.danger}55` }]}>
@@ -129,6 +171,17 @@ const styles = StyleSheet.create({
     title: { fontSize: 33, lineHeight: 38, fontWeight: '900' },
     subtitle: { fontSize: 16 },
     formCard: { gap: 14 },
+    roleRow: { flexDirection: 'row', gap: 10 },
+    roleOption: {
+        flex: 1,
+        borderWidth: 1.5,
+        borderRadius: 12,
+        padding: 12,
+        alignItems: 'center',
+        gap: 4,
+    },
+    roleTitle: { fontSize: 15, fontWeight: '900' },
+    roleSubtitle: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
     caption: { textAlign: 'center', marginTop: 2, fontWeight: '700' },
     link: { fontWeight: '900' },
     errorBox: {

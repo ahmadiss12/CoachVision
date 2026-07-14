@@ -71,6 +71,19 @@ class UpdateRoleRequest(BaseModel):
     role: str = Field(pattern="^(client|trainer|admin)$")
 
 
+class AdminStatsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    total_users: int = Field(alias="totalUsers")
+    clients: int
+    trainers: int
+    admins: int
+    completed_sessions: int = Field(alias="completedSessions")
+    sessions_last_7d: int = Field(alias="sessionsLast7d")
+    active_coaching_links: int = Field(alias="activeCoachingLinks")
+    pending_invites: int = Field(alias="pendingInvites")
+
+
 class InviteCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

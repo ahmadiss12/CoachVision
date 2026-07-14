@@ -13,9 +13,10 @@ import { getThemeColors } from '@/src/theme/colors';
 
 export function ProfileScreen() {
     const router = useRouter();
-    const { authUser, profile, updateProfileAvatar, themeMode } = useAppState();
+    const { authUser, userRole, profile, updateProfileAvatar, themeMode } = useAppState();
     const colors = getThemeColors(themeMode);
     const displayName = authUser?.email?.split('@')[0] ?? 'Athlete';
+    const isClient = userRole === 'client';
     const handleUploadAvatar = async () => {
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
@@ -48,30 +49,51 @@ export function ProfileScreen() {
           <View style={styles.identityCopy}>
             <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
             <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{authUser?.email ?? 'No email'}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: `${colors.brandAlt}1A`, borderColor: colors.brandAlt }]}>
+              <Ionicons
+                name={userRole === 'admin' ? 'shield-checkmark-outline' : userRole === 'trainer' ? 'clipboard-outline' : 'fitness-outline'}
+                size={13}
+                color={colors.brandAlt}
+              />
+              <Text style={[styles.roleText, { color: colors.brandAlt }]}>{userRole}</Text>
+            </View>
           </View>
         </Card>
 
-        <View style={styles.metricGrid}>
-          <View style={styles.metricRow}>
-            <MetricTile icon="resize-outline" label="Height" value={profile ? `${profile.heightCm} cm` : '--'} tone="info" />
-            <MetricTile icon="scale-outline" label="Weight" value={profile ? `${profile.weightKg} kg` : '--'} tone="brand" />
-          </View>
-          <View style={styles.metricRow}>
-            <MetricTile icon="water-outline" label="Body fat" value={profile ? `${profile.bodyFatPercent}%` : '--'} tone="warning" />
-            <MetricTile icon="speedometer-outline" label="BMI" value={profile ? `${profile.bmi}` : '--'} tone="success" />
-          </View>
-        </View>
+        {isClient ? (
+          <PrimaryButton
+            icon="clipboard-outline"
+            title="My coach"
+            variant="secondary"
+            onPress={() => router.push('/(app)/my-coach')}
+          />
+        ) : null}
 
-        <Card style={styles.infoCard}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Profile details</Text>
-          <InfoRow icon="calendar-outline" label="Date of birth" value={profile?.dateOfBirth ?? '--'} colors={colors}/>
-          <InfoRow icon="hourglass-outline" label="Age" value={profile ? `${profile.age}` : '--'} colors={colors}/>
-        </Card>
+        {isClient ? (
+          <>
+            <View style={styles.metricGrid}>
+              <View style={styles.metricRow}>
+                <MetricTile icon="resize-outline" label="Height" value={profile ? `${profile.heightCm} cm` : '--'} tone="info" />
+                <MetricTile icon="scale-outline" label="Weight" value={profile ? `${profile.weightKg} kg` : '--'} tone="brand" />
+              </View>
+              <View style={styles.metricRow}>
+                <MetricTile icon="water-outline" label="Body fat" value={profile ? `${profile.bodyFatPercent}%` : '--'} tone="warning" />
+                <MetricTile icon="speedometer-outline" label="BMI" value={profile ? `${profile.bmi}` : '--'} tone="success" />
+              </View>
+            </View>
 
-        <View style={styles.actions}>
-          <PrimaryButton icon="create-outline" title="Edit body data" variant="secondary" onPress={() => router.push('/(app)/profile-edit')} style={styles.actionButton}/>
-          <PrimaryButton icon="analytics-outline" title="Track progress" onPress={() => router.push('/(app)/body-progress')} style={styles.actionButton}/>
-        </View>
+            <Card style={styles.infoCard}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Profile details</Text>
+              <InfoRow icon="calendar-outline" label="Date of birth" value={profile?.dateOfBirth ?? '--'} colors={colors}/>
+              <InfoRow icon="hourglass-outline" label="Age" value={profile ? `${profile.age}` : '--'} colors={colors}/>
+            </Card>
+
+            <View style={styles.actions}>
+              <PrimaryButton icon="create-outline" title="Edit body data" variant="secondary" onPress={() => router.push('/(app)/profile-edit')} style={styles.actionButton}/>
+              <PrimaryButton icon="analytics-outline" title="Track progress" onPress={() => router.push('/(app)/body-progress')} style={styles.actionButton}/>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>);
 }
@@ -106,6 +128,17 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     identityCopy: { alignItems: 'center', gap: 4 },
+    roleBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        marginTop: 4,
+    },
+    roleText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
     userName: { fontWeight: '900', fontSize: 22, textTransform: 'capitalize' },
     userEmail: { fontSize: 13, fontWeight: '700' },
     metricGrid: { gap: 10 },
