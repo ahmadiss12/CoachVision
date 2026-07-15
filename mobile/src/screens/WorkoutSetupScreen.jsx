@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View, } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { getExerciseMetadata, supportsExternalLoad } from '../constants/exercise-metadata';
@@ -86,8 +87,21 @@ export function WorkoutSetupScreen() {
     const [isCheckingReadiness, setIsCheckingReadiness] = useState(false);
     const readinessRequestIdRef = useRef(0);
     const targetRepsRef = useRef(targetReps);
+    const planParams = useLocalSearchParams();
     useEffect(() => {
         loadExercises();
+        // Pre-fill from Today's plan when opened via a plan exercise.
+        if (planParams?.exerciseId) {
+            setSelectedExercise(String(planParams.exerciseId));
+        }
+        const planReps = Number(planParams?.targetReps);
+        if (Number.isFinite(planReps) && planReps > 0) {
+            setTargetReps(Math.round(planReps));
+        }
+        const planLoad = Number(planParams?.externalLoadKg);
+        if (Number.isFinite(planLoad) && planLoad > 0) {
+            setExternalLoadKg(planLoad);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     useEffect(() => {
@@ -143,6 +157,7 @@ export function WorkoutSetupScreen() {
             difficulty,
             targetSets: 1,
             targetReps,
+            assignmentId: planParams?.assignmentId ? String(planParams.assignmentId) : null,
             measurementType: meta.measurementType,
             metricLabel: meta.metricLabel,
             fatiguePrediction: activeFatiguePrediction,

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getExerciseMetadata } from '@/src/constants/exercise-metadata';

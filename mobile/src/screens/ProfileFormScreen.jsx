@@ -2,7 +2,8 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { createElement, useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BmiGauge, getBmiCategoryLabel } from '@/src/components/BmiGauge';
 import { Card } from '@/src/components/Card';
 import { Input } from '@/src/components/Input';

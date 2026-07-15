@@ -648,6 +648,7 @@ export function AppStateProvider({ children }) {
                 targetReps: config.targetReps || 1,
                 externalLoadKg: Number.isFinite(externalLoadKg) ? externalLoadKg : 0,
                 bodyWeightKg: Number.isFinite(bodyWeightKg) && bodyWeightKg > 0 ? bodyWeightKg : null,
+                assignmentId: config.assignmentId || null,
             });
             const started = await startSession(created.id);
             const nextSession = {

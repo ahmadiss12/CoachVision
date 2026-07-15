@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../components/Card';
 import { MetricTile } from '../components/MetricTile';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -200,7 +201,7 @@ function MistakeSummary({ feedback, colors }) {
     const hasIssues = feedback.topErrors?.length > 0;
     return (
       <Card style={styles.card}>
-        <SectionTitle icon="clipboard-check-outline" title="Form review" colors={colors} />
+        <SectionTitle icon="clipboard-outline" title="Form review" colors={colors} />
         <Text style={[styles.note, { color: colors.textSecondary }]}>{feedback.summaryText}</Text>
 
         {hasIssues ? (

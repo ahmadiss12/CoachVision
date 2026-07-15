@@ -45,11 +45,12 @@ export async function createSession({
   difficulty = 'beginner',
   externalLoadKg = null,
   bodyWeightKg = null,
+  assignmentId = null,
 }) {
   const payload = await apiRequest('/sessions', {
     method: 'POST',
     auth: true,
-    body: { exerciseId, targetSets, targetReps, difficulty, externalLoadKg, bodyWeightKg },
+    body: { exerciseId, targetSets, targetReps, difficulty, externalLoadKg, bodyWeightKg, assignmentId },
   });
   return toSessionShape(payload);
 }

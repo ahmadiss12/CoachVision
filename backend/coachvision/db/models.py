@@ -101,6 +101,103 @@ class ClientInvite(Base):
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Program(Base):
+    """A reusable training program built by a trainer."""
+
+    __tablename__ = "programs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    trainer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weeks: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    days: Mapped[list["ProgramDay"]] = relationship(
+        back_populates="program",
+        cascade="all, delete-orphan",
+        order_by="ProgramDay.day_index",
+    )
+
+
+class ProgramDay(Base):
+    """One day inside a program cycle (day_index is 1-based within the cycle)."""
+
+    __tablename__ = "program_days"
+    __table_args__ = (
+        UniqueConstraint("program_id", "day_index", name="uq_program_days_program_day"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    program_id: Mapped[UUID] = mapped_column(
+        ForeignKey("programs.id", ondelete="CASCADE"), nullable=False
+    )
+    day_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    program: Mapped["Program"] = relationship(back_populates="days")
+    exercises: Mapped[list["ProgramExercise"]] = relationship(
+        back_populates="day",
+        cascade="all, delete-orphan",
+        order_by="ProgramExercise.position",
+    )
+
+
+class ProgramExercise(Base):
+    """A prescribed exercise inside a program day."""
+
+    __tablename__ = "program_exercises"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    program_day_id: Mapped[UUID] = mapped_column(
+        ForeignKey("program_days.id", ondelete="CASCADE"), nullable=False
+    )
+    exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    target_sets: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    target_reps: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    rest_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    external_load_kg: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    day: Mapped["ProgramDay"] = relationship(back_populates="exercises")
+
+
+class ProgramAssignment(Base):
+    """A program assigned to a client, cycling from start_date."""
+
+    __tablename__ = "program_assignments"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    program_id: Mapped[UUID] = mapped_column(
+        ForeignKey("programs.id", ondelete="CASCADE"), nullable=False
+    )
+    trainer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    client_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    start_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum("active", "completed", "cancelled", name="assignment_status"),
+        default="active",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    program: Mapped["Program"] = relationship()
+
+
 class BodyMetric(Base):
     __tablename__ = "body_metrics"
 
@@ -133,6 +230,9 @@ class Session(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     exercise_id: Mapped[str] = mapped_column(ForeignKey("exercises.id"))
+    assignment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("program_assignments.id", ondelete="SET NULL"), nullable=True
+    )
     difficulty: Mapped[str] = mapped_column(
         Enum("beginner", "intermediate", "advanced", name="difficulty_level"),
         nullable=False,

@@ -30,5 +30,7 @@ export default function AppLayout() {
       <Stack.Screen name="client-sessions"/>
       <Stack.Screen name="client-session-detail"/>
       <Stack.Screen name="my-coach"/>
+      <Stack.Screen name="program-builder"/>
+      <Stack.Screen name="assign-program"/>
     </Stack>);
 }

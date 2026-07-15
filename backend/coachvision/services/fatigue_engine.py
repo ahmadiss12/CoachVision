@@ -45,13 +45,33 @@ class FatiguePredictResult:
     feature_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
+def _safe_float(value: Any, default: float | None) -> float | None:
+    """Parse client-supplied numbers without ever raising."""
+    if value in (None, ""):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):  # noqa: PLR0124
+        return default
+    return parsed
+
+
+def _safe_int(value: Any, default: int) -> int:
+    parsed = _safe_float(value, float(default))
+    return default if parsed is None else int(parsed)
+
+
 def _parse_user_context(ctx: dict[str, Any]) -> tuple[float, int, int, float, float | None, float | None]:
-    sleep = float(ctx.get("sleepHours", ctx.get("sleep_hours", 7.5)))
-    soreness = int(ctx.get("muscleSoreness", ctx.get("soreness", ctx.get("muscle_soreness", 2))))
-    stress = int(ctx.get("stress", 2))
-    external_load = float(ctx.get("externalLoadKg", ctx.get("external_load_kg", ctx.get("loadKg", 0))) or 0)
-    body_weight_raw = ctx.get("bodyWeightKg", ctx.get("body_weight_kg"))
-    body_weight = float(body_weight_raw) if body_weight_raw not in (None, "") else None
+    sleep = _safe_float(ctx.get("sleepHours", ctx.get("sleep_hours")), 7.5)
+    sleep = max(0.0, min(16.0, sleep))
+    soreness = _safe_int(ctx.get("muscleSoreness", ctx.get("soreness", ctx.get("muscle_soreness"))), 2)
+    stress = _safe_int(ctx.get("stress"), 2)
+    external_load = _safe_float(
+        ctx.get("externalLoadKg", ctx.get("external_load_kg", ctx.get("loadKg"))), 0.0
+    ) or 0.0
+    body_weight = _safe_float(ctx.get("bodyWeightKg", ctx.get("body_weight_kg")), None)
     external_load = max(0.0, min(300.0, external_load))
     if body_weight is not None:
         body_weight = max(20.0, min(400.0, body_weight))
@@ -83,19 +103,29 @@ def predict_rule_v1(
     score = 78
 
     # --- Volume (recent sessions + reps) ---
-    vol_penalty = min(24, rolling.sessions_7d * 3)
+    # Normalize to a weekly rate so the score does not depend on the size of
+    # the analysis window (e.g. 8 sessions across 14 days is the same training
+    # frequency as 4 sessions across 7 days).
+    week_factor = 7.0 / max(1, window_days)
+    sessions_per_week = rolling.sessions_7d * week_factor
+    reps_per_week = rolling.reps_7d * week_factor
+
+    vol_penalty = int(min(24, round(sessions_per_week * 3)))
     if vol_penalty:
         explain.append(
             ExplainabilityFactor(
                 key="session_volume_7d",
                 label="Recent session frequency",
                 impact=-vol_penalty,
-                detail=f"{rolling.sessions_7d} completed session(s) in the last {window_days} days.",
+                detail=(
+                    f"{rolling.sessions_7d} completed session(s) in the last {window_days} days "
+                    f"(~{sessions_per_week:.1f}/week)."
+                ),
             )
         )
         score -= vol_penalty
 
-    extra_reps = max(0, rolling.reps_7d - 100)
+    extra_reps = max(0.0, reps_per_week - 100)
     rep_penalty = int(min(18, extra_reps * 0.12))
     if rep_penalty:
         explain.append(
@@ -103,7 +133,10 @@ def predict_rule_v1(
                 key="rep_volume_7d",
                 label="Recent hold time" if is_hold_exercise else "Recent rep volume",
                 impact=-rep_penalty,
-                detail=f"{rolling.reps_7d} total {volume_unit} in-window; high volume adds fatigue load.",
+                detail=(
+                    f"{rolling.reps_7d} total {volume_unit} in the last {window_days} days "
+                    f"(~{round(reps_per_week)}/week); high volume adds fatigue load."
+                ),
             )
         )
         score -= rep_penalty

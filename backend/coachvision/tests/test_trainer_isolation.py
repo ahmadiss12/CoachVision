@@ -212,6 +212,101 @@ class TrainerIsolationTest(unittest.TestCase):
         )
         self.assertEqual(sessions.status_code, 404)
 
+    def test_14_program_assign_and_today_plan(self) -> None:
+        self._link_c_to_a()
+
+        created = client.post(
+            "/v1/trainer/programs",
+            json={
+                "name": "Starter strength",
+                "weeks": 1,
+                "days": [
+                    {
+                        "dayIndex": 1,
+                        "exercises": [
+                            {"exerciseId": "squat", "targetSets": 3, "targetReps": 10}
+                        ],
+                    }
+                ],
+            },
+            headers=self.trainer_a,
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        program_id = created.json()["id"]
+
+        db = TestingSessionLocal()
+        client_c_id = str(db.query(User).filter_by(email="client.c@test.dev").one().id)
+        db.close()
+
+        # Trainer B owns neither the program nor the client link.
+        denied = client.post(
+            f"/v1/trainer/programs/{program_id}/assign",
+            json={"clientId": client_c_id},
+            headers=self.trainer_b,
+        )
+        self.assertEqual(denied.status_code, 404)
+
+        assigned = client.post(
+            f"/v1/trainer/programs/{program_id}/assign",
+            json={"clientId": client_c_id},
+            headers=self.trainer_a,
+        )
+        self.assertEqual(assigned.status_code, 200, assigned.text)
+        self.assertEqual(assigned.json()["status"], "active")
+
+        plan = client.get("/v1/me/plan/today", headers=self.client_c)
+        self.assertEqual(plan.status_code, 200, plan.text)
+        body = plan.json()
+        self.assertTrue(body["hasPlan"])
+        self.assertFalse(body["restDay"])
+        self.assertEqual(body["dayIndex"], 1)
+        self.assertEqual(len(body["exercises"]), 1)
+        item = body["exercises"][0]
+        self.assertEqual(item["exerciseId"], "squat")
+        self.assertEqual(item["prescribedReps"], 10)
+        self.assertLessEqual(item["adjustedReps"], 10)
+        self.assertIn(item["fatigueLevel"], {"low", "moderate", "high"})
+
+    def test_15_rest_day_when_no_day_defined(self) -> None:
+        self._link_c_to_a()
+        created = client.post(
+            "/v1/trainer/programs",
+            json={
+                "name": "Day-2 only",
+                "weeks": 1,
+                "days": [
+                    {
+                        "dayIndex": 2,
+                        "exercises": [
+                            {"exerciseId": "squat", "targetSets": 2, "targetReps": 8}
+                        ],
+                    }
+                ],
+            },
+            headers=self.trainer_a,
+        )
+        program_id = created.json()["id"]
+
+        db = TestingSessionLocal()
+        client_c_id = str(db.query(User).filter_by(email="client.c@test.dev").one().id)
+        db.close()
+
+        client.post(
+            f"/v1/trainer/programs/{program_id}/assign",
+            json={"clientId": client_c_id},
+            headers=self.trainer_a,
+        )
+        plan = client.get("/v1/me/plan/today", headers=self.client_c)
+        body = plan.json()
+        self.assertTrue(body["hasPlan"])
+        self.assertTrue(body["restDay"])
+        self.assertEqual(body["dayIndex"], 1)
+
+    def test_16_no_plan_message(self) -> None:
+        plan = client.get("/v1/me/plan/today", headers=self.client_d)
+        body = plan.json()
+        self.assertFalse(body["hasPlan"])
+
     def test_09_role_visible_in_me(self) -> None:
         me = client.get("/v1/users/me", headers=self.trainer_a).json()
         self.assertEqual(me["role"], "trainer")

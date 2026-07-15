@@ -39,6 +39,11 @@ export default function TabsLayout() {
             href: isTrainer ? undefined : null,
             tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'people' : 'people-outline'} color={color} size={22}/>,
         }}/>
+      <Tabs.Screen name="programs" options={{
+            title: 'Programs',
+            href: isTrainer ? undefined : null,
+            tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'reader' : 'reader-outline'} color={color} size={22}/>,
+        }}/>
       <Tabs.Screen name="invites" options={{
             title: 'Invites',
             href: isTrainer ? undefined : null,

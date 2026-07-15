@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { IconBadge } from '@/src/components/IconBadge';
 import { MetricTile } from '@/src/components/MetricTile';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
+import { TodayPlanCard } from '@/src/components/TodayPlanCard';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
 
@@ -82,6 +84,8 @@ export function HomeScreen() {
           title="Training dashboard"
           subtitle="A quick view of readiness, progress, and your next move."
         />
+
+        <TodayPlanCard colors={colors} />
 
         <Card style={[styles.heroCard, { backgroundColor: colors.surface }]}>
           <View style={styles.heroTop}>

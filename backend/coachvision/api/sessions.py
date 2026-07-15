@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .deps import get_current_user
 from .schemas import CreateSessionRequest, EndSessionRequest, SessionFeedbackResponse, SessionResponse
-from ..db.models import Exercise, Session, SessionFeedback, User
+from ..db.models import Exercise, ProgramAssignment, Session, SessionFeedback, User
 from ..db.session import get_db
 
 router = APIRouter(prefix="/sessions")
@@ -25,9 +25,23 @@ def create_session(
     if not exercise:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exercise not found")
 
+    # Link the workout to the client's plan when it was started from Today's
+    # plan; a stale/foreign assignment id is ignored rather than blocking the
+    # workout.
+    assignment_id = None
+    if payload.assignment_id is not None:
+        assignment = db.get(ProgramAssignment, payload.assignment_id)
+        if (
+            assignment is not None
+            and assignment.client_id == current_user.id
+            and assignment.status == "active"
+        ):
+            assignment_id = assignment.id
+
     session = Session(
         user_id=current_user.id,
         exercise_id=payload.exercise_id,
+        assignment_id=assignment_id,
         difficulty=payload.difficulty,
         status="planned",
         target_sets=payload.target_sets,

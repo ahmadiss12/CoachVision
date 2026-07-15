@@ -127,6 +127,118 @@ class TrainerClientResponse(BaseModel):
     linked_at: datetime = Field(alias="linkedAt")
 
 
+class ProgramExerciseInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    exercise_id: str = Field(alias="exerciseId")
+    target_sets: int = Field(1, ge=1, le=20, alias="targetSets")
+    target_reps: int = Field(1, ge=1, le=500, alias="targetReps")
+    rest_seconds: int = Field(60, ge=0, le=600, alias="restSeconds")
+    external_load_kg: float | None = Field(default=None, ge=0, le=300, alias="externalLoadKg")
+    notes: str | None = Field(default=None, max_length=300)
+
+
+class ProgramDayInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    day_index: int = Field(ge=1, le=28, alias="dayIndex")
+    notes: str | None = None
+    exercises: list[ProgramExerciseInput] = Field(default_factory=list)
+
+
+class ProgramCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    weeks: int = Field(1, ge=1, le=4)
+    days: list[ProgramDayInput] = Field(default_factory=list)
+
+
+class ProgramExerciseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    exercise_id: str = Field(alias="exerciseId")
+    position: int
+    target_sets: int = Field(alias="targetSets")
+    target_reps: int = Field(alias="targetReps")
+    rest_seconds: int = Field(alias="restSeconds")
+    external_load_kg: float | None = Field(default=None, alias="externalLoadKg")
+    notes: str | None = None
+
+
+class ProgramDayResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    day_index: int = Field(alias="dayIndex")
+    notes: str | None = None
+    exercises: list[ProgramExerciseResponse] = Field(default_factory=list)
+
+
+class ProgramResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    name: str
+    description: str | None = None
+    weeks: int
+    created_at: datetime = Field(alias="createdAt")
+    days: list[ProgramDayResponse] = Field(default_factory=list)
+
+
+class AssignProgramRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    client_id: UUID = Field(alias="clientId")
+    start_date: str | None = Field(default=None, alias="startDate", description="YYYY-MM-DD; defaults to today")
+
+
+class AssignmentResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    program_id: UUID = Field(alias="programId")
+    program_name: str = Field(alias="programName")
+    client_id: UUID = Field(alias="clientId")
+    start_date: date = Field(alias="startDate")
+    status: str
+    created_at: datetime = Field(alias="createdAt")
+    days_elapsed: int | None = Field(default=None, alias="daysElapsed")
+    sessions_completed: int = Field(default=0, alias="sessionsCompleted")
+
+
+class PlanExerciseResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    exercise_id: str = Field(alias="exerciseId")
+    exercise_name: str = Field(alias="exerciseName")
+    prescribed_sets: int = Field(alias="prescribedSets")
+    prescribed_reps: int = Field(alias="prescribedReps")
+    adjusted_sets: int = Field(alias="adjustedSets")
+    adjusted_reps: int = Field(alias="adjustedReps")
+    rest_seconds: int = Field(alias="restSeconds")
+    external_load_kg: float | None = Field(default=None, alias="externalLoadKg")
+    notes: str | None = None
+    readiness_score: int = Field(alias="readinessScore")
+    fatigue_level: str = Field(alias="fatigueLevel")
+    adjustment_note: str | None = Field(default=None, alias="adjustmentNote")
+
+
+class TodayPlanResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    has_plan: bool = Field(alias="hasPlan")
+    rest_day: bool = Field(default=False, alias="restDay")
+    program_name: str | None = Field(default=None, alias="programName")
+    trainer_name: str | None = Field(default=None, alias="trainerName")
+    assignment_id: UUID | None = Field(default=None, alias="assignmentId")
+    day_index: int | None = Field(default=None, alias="dayIndex")
+    cycle_length: int | None = Field(default=None, alias="cycleLength")
+    day_notes: str | None = Field(default=None, alias="dayNotes")
+    message: str | None = None
+    exercises: list[PlanExerciseResponse] = Field(default_factory=list)
+
+
 class BodyMetricCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -161,6 +273,7 @@ class CreateSessionRequest(BaseModel):
     difficulty: str = "intermediate"
     external_load_kg: float | None = Field(default=None, ge=0, le=300, alias="externalLoadKg")
     body_weight_kg: float | None = Field(default=None, ge=20, le=400, alias="bodyWeightKg")
+    assignment_id: UUID | None = Field(default=None, alias="assignmentId")
 
 
 class EndSessionRequest(BaseModel):

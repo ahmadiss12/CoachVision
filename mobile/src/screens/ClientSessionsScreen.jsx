@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getExerciseMetadata } from '@/src/constants/exercise-metadata';
+import { listClientAssignments } from '@/src/services/api/programs';
 import { listClientSessions } from '@/src/services/api/trainer';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
@@ -27,6 +29,7 @@ export function ClientSessionsScreen() {
     const { themeMode, ensureFreshAccessToken } = useAppState();
     const colors = getThemeColors(themeMode);
     const [sessions, setSessions] = useState([]);
+    const [activeAssignment, setActiveAssignment] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -36,6 +39,11 @@ export function ClientSessionsScreen() {
         }
         setIsLoading(true);
         setError(null);
+        listClientAssignments(clientId)
+            .then((assignments) => {
+                setActiveAssignment(assignments.find((a) => a.status === 'active') ?? null);
+            })
+            .catch(() => setActiveAssignment(null));
         try {
             setSessions(await listClientSessions(clientId));
         } catch (err) {
@@ -66,6 +74,23 @@ export function ClientSessionsScreen() {
           title={clientName ? `${clientName}'s workouts` : 'Client workouts'}
           subtitle={`${sessions.length} completed ${sessions.length === 1 ? 'session' : 'sessions'}`}
         />
+        {activeAssignment ? (
+          <Card style={styles.assignmentCard}>
+            <View style={[styles.itemIcon, { backgroundColor: `${colors.success}22` }]}>
+              <Ionicons name="reader-outline" size={20} color={colors.success} />
+            </View>
+            <View style={styles.itemCopy}>
+              <Text style={[styles.assignmentTitle, { color: colors.textPrimary }]}>
+                On plan: {activeAssignment.programName}
+              </Text>
+              <Text style={[styles.itemSub, { color: colors.textSecondary }]}>
+                Day {activeAssignment.daysElapsed ?? '--'} since {new Date(activeAssignment.startDate).toLocaleDateString()}
+                {' · '}
+                {activeAssignment.sessionsCompleted} plan workout{activeAssignment.sessionsCompleted === 1 ? '' : 's'} completed
+              </Text>
+            </View>
+          </Card>
+        ) : null}
         {error ? (
           <Card style={styles.emptyCard}>
             <Ionicons name="cloud-offline-outline" size={28} color={colors.danger} />
@@ -164,6 +189,8 @@ const styles = StyleSheet.create({
     safe: { flex: 1 },
     container: { flex: 1, padding: 20, gap: 14 },
     list: { gap: 10, paddingBottom: 24 },
+    assignmentCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    assignmentTitle: { fontWeight: '900', fontSize: 15 },
     item: { gap: 12 },
     itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     itemIcon: {
