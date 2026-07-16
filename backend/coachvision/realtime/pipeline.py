@@ -166,9 +166,10 @@ def _resolve_form_metrics(
     prediction: SquatFormPrediction | None = None
     exercise = state.exercise_name.lower().replace("-", "_").replace(" ", "_")
     if exercise == "squat" and pose_confidence >= 0.5:
-        prediction = get_squat_form_classifier().predict(pose_lms)
+        classifier = get_squat_form_classifier()
+        prediction = classifier.predict(pose_lms)
         if prediction is not None:
-            prediction = state.squat_form_smoother.update(prediction)
+            prediction = state.squat_form_smoother.update(prediction, classifier.class_names)
             timing_ms["form_model"] = round(prediction.inference_ms, 2)
 
     if prediction is not None and prediction.confidence >= 0.5:

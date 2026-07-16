@@ -90,6 +90,49 @@ class FatigueEngineTest(unittest.TestCase):
         self.assertEqual(wrecked.fatigue_level, "high")
         self.assertGreater(rested.readiness_score, wrecked.readiness_score + 30)
 
+    def test_slowing_rep_tempo_penalized(self) -> None:
+        steady = predict_rule_v1(
+            _snapshot(rep_duration_trend_7d=1.0), {}, window_days=7, exercise_id="squat"
+        )
+        slowing = predict_rule_v1(
+            _snapshot(rep_duration_trend_7d=1.3), {}, window_days=7, exercise_id="squat"
+        )
+        self.assertGreater(steady.readiness_score, slowing.readiness_score)
+        keys = {factor.key for factor in slowing.explainability}
+        self.assertIn("rep_tempo_trend", keys)
+
+    def test_readiness_v2_falls_back_to_rule_without_model(self) -> None:
+        from coachvision.services.readiness_model import predict_readiness
+
+        result, version = predict_readiness(
+            _snapshot(), {"sleepHours": 8}, window_days=7, exercise_id="squat"
+        )
+        self.assertEqual(version, "rule_v1")
+        rule = predict_rule_v1(
+            _snapshot(), {"sleepHours": 8}, window_days=7, exercise_id="squat"
+        )
+        self.assertEqual(result.readiness_score, rule.readiness_score)
+
+    def test_feature_vector_handles_missing_values(self) -> None:
+        import numpy as np
+
+        from coachvision.services.readiness_model import (
+            READINESS_FEATURE_NAMES,
+            build_feature_vector,
+        )
+
+        vector = build_feature_vector({}, {})
+        self.assertEqual(len(vector), len(READINESS_FEATURE_NAMES))
+        self.assertTrue(np.isnan(vector).all())
+
+        vector = build_feature_vector(
+            {"sessions_7d": 3, "avg_form_score_7d": "not-a-number"},
+            {"sleepHours": 7.5},
+        )
+        self.assertEqual(vector[0], 3.0)
+        self.assertTrue(np.isnan(vector[2]))
+        self.assertEqual(vector[10], 7.5)
+
     def test_every_factor_is_explained(self) -> None:
         result = predict_rule_v1(
             _snapshot(sessions_7d=5, reps_7d=300, avg_form_score_7d=70, shallow_rep_ratio_7d=0.4),

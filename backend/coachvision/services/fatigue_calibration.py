@@ -132,9 +132,9 @@ def record_calibration_for_session(db: DbSession, workout: WorkoutSession) -> Fa
     ref = predicted_score if predicted_score is not None else _reference_predicted_score()
     delta = int(round(actual - ref))
 
-    drop = actual < 45 and (predicted_score is None or predicted_score < 55)
-    if predicted_score is not None and actual < predicted_score - 12:
-        drop = True
+    # Label a "drop" when the session was objectively poor, or when it
+    # underperformed the (or a neutral) expectation by a clear margin.
+    drop = actual < 45 or actual < ref - 12
 
     detail: dict[str, Any] = {
         "performance_breakdown": perf_detail,

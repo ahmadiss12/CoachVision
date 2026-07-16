@@ -14,8 +14,8 @@ from .schemas import (
 )
 from ..db.models import FatiguePrediction, User
 from ..db.session import get_db
-from ..services.fatigue_engine import predict_rule_v1
 from ..services.fatigue_features import fetch_rolling_features
+from ..services.readiness_model import predict_readiness
 
 router = APIRouter(prefix="/fatigue")
 
@@ -51,7 +51,7 @@ def predict_fatigue(
         payload.exercise_id,
         window_days=payload.recent_window_days,
     )
-    result = predict_rule_v1(
+    result, model_version = predict_readiness(
         rolling,
         payload.user_context,
         window_days=payload.recent_window_days,
@@ -65,7 +65,7 @@ def predict_fatigue(
         fatigue_level=result.fatigue_level,
         recommendation=result.recommendation,
         factors=result.factors,
-        model_version="rule_v1",
+        model_version=model_version,
         input_snapshot={
             "recentWindowDays": payload.recent_window_days,
             "userContext": payload.user_context,

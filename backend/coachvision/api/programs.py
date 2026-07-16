@@ -34,11 +34,11 @@ from ..db.models import (
     User,
 )
 from ..db.session import get_db
-from ..services.fatigue_engine import predict_rule_v1
 from ..services.fatigue_features import (
     fetch_rolling_features,
     last_self_report_from_predictions,
 )
+from ..services.readiness_model import predict_readiness
 
 router = APIRouter()
 
@@ -339,7 +339,7 @@ def today_plan(
             db, current_user.id, item.exercise_id, window_days=14
         )
         self_report = last_self_report_from_predictions(db, current_user.id, item.exercise_id)
-        prediction = predict_rule_v1(
+        prediction, _model_version = predict_readiness(
             rolling,
             self_report,
             window_days=14,

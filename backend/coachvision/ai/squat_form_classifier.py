@@ -152,6 +152,11 @@ class SquatFormClassifier:
         return self._load_error
 
     @property
+    def class_names(self) -> list[str]:
+        self._ensure_loaded()
+        return self._class_names
+
+    @property
     def available(self) -> bool:
         self._ensure_loaded()
         return self._booster is not None
@@ -204,25 +209,49 @@ class SquatFormClassifier:
 
 
 class SquatFormSmoother:
-    """Average recent class probabilities to avoid frame-to-frame label flicker."""
+    """Average recent class probabilities to avoid frame-to-frame label flicker.
 
-    def __init__(self, window_size: int = 7):
+    Adds label hysteresis on top of the moving average: once a label is
+    emitted, a different label must beat it by ``switch_margin`` (smoothed
+    probability) before the emitted label changes. This prevents rapid
+    label/voice-cue flapping when two classes are nearly tied.
+    """
+
+    def __init__(self, window_size: int = 7, switch_margin: float = 0.05):
         self._history: deque[np.ndarray] = deque(maxlen=window_size)
+        self._switch_margin = switch_margin
+        self._current_id: int | None = None
 
     def reset(self) -> None:
         self._history.clear()
+        self._current_id = None
 
-    def update(self, prediction: SquatFormPrediction) -> SquatFormPrediction:
+    def update(
+        self,
+        prediction: SquatFormPrediction,
+        class_names: Sequence[str] | None = None,
+    ) -> SquatFormPrediction:
+        names = list(class_names) if class_names else DEFAULT_CLASS_NAMES
         self._history.append(np.asarray(prediction.probabilities, dtype=np.float64))
         probabilities = np.mean(np.stack(self._history), axis=0)
-        form_id = int(np.argmax(probabilities))
-        form_name = DEFAULT_CLASS_NAMES[form_id]
+        best_id = int(np.argmax(probabilities))
+
+        if (
+            self._current_id is not None
+            and best_id != self._current_id
+            and self._current_id < len(probabilities)
+            and probabilities[best_id] - probabilities[self._current_id] < self._switch_margin
+        ):
+            best_id = self._current_id
+        self._current_id = best_id
+
+        form_name = names[best_id] if best_id < len(names) else str(best_id)
         return SquatFormPrediction(
-            form_id=form_id,
+            form_id=best_id,
             form_name=form_name,
-            confidence=float(probabilities[form_id]),
+            confidence=float(probabilities[best_id]),
             probabilities=probabilities.tolist(),
-            feedback=FORM_FEEDBACK[form_name],
+            feedback=FORM_FEEDBACK.get(form_name, "Adjust your squat form."),
             inference_ms=prediction.inference_ms,
         )
 

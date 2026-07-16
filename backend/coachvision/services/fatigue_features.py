@@ -26,6 +26,7 @@ class RollingFeatureSnapshot:
     days_since_last_session: int | None
     form_degradation_7d: float | None  # last2 session avg form - first2 avg form
     shallow_rep_ratio_7d: float | None  # proxy for "failure / quality drop"
+    rep_duration_trend_7d: float | None = None  # ratio: recent avg rep ms / earlier avg rep ms (>1 = slowing)
 
 
 def _utc_now() -> datetime:
@@ -75,6 +76,7 @@ def fetch_rolling_features(
     shallow = 0
     total_depth = 0
 
+    durs_by_session: dict[UUID, list[int]] = {}
     if session_ids:
         rep_rows = db.scalars(
             select(RepEvent).where(RepEvent.session_id.in_(session_ids))
@@ -84,6 +86,7 @@ def fetch_rolling_features(
                 roms_by_session.setdefault(r.session_id, []).append(float(r.range_of_motion))
             if r.duration_ms is not None:
                 durs_ms.append(int(r.duration_ms))
+                durs_by_session.setdefault(r.session_id, []).append(int(r.duration_ms))
             if r.depth_quality:
                 total_depth += 1
                 if r.depth_quality in ("shallow", "very_shallow"):
@@ -111,6 +114,23 @@ def fetch_rolling_features(
         rom_trend = round(per_sess_rom[-1] - per_sess_rom[0], 3)
 
     avg_dur_ms = sum(durs_ms) / len(durs_ms) if durs_ms else None
+
+    # Rep tempo trend (velocity-loss proxy): ratio of recent mean rep duration
+    # to earlier mean rep duration across sessions in the window. > 1 means
+    # reps are getting slower over time, a classic fatigue signal.
+    rep_duration_trend: float | None = None
+    per_sess_dur: list[float] = []
+    for s in sessions:
+        vals = durs_by_session.get(s.id, [])
+        if vals:
+            per_sess_dur.append(sum(vals) / len(vals))
+    if len(per_sess_dur) >= 4:
+        earlier = sum(per_sess_dur[:2]) / 2
+        recent = sum(per_sess_dur[-2:]) / 2
+        if earlier > 1e-6:
+            rep_duration_trend = round(recent / earlier, 3)
+    elif len(per_sess_dur) >= 2 and per_sess_dur[0] > 1e-6:
+        rep_duration_trend = round(per_sess_dur[-1] / per_sess_dur[0], 3)
 
     shallow_ratio = (shallow / total_depth) if total_depth else None
 
@@ -150,6 +170,7 @@ def fetch_rolling_features(
         days_since_last_session=days_since,
         form_degradation_7d=form_deg,
         shallow_rep_ratio_7d=round(shallow_ratio, 3) if shallow_ratio is not None else None,
+        rep_duration_trend_7d=rep_duration_trend,
     )
 
 
@@ -164,6 +185,7 @@ def snapshot_to_dict(s: RollingFeatureSnapshot) -> dict[str, Any]:
         "days_since_last_session": s.days_since_last_session,
         "form_degradation_7d": s.form_degradation_7d,
         "shallow_rep_ratio_7d": s.shallow_rep_ratio_7d,
+        "rep_duration_trend_7d": s.rep_duration_trend_7d,
     }
 
 

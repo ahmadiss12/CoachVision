@@ -176,6 +176,22 @@ def predict_rule_v1(
         )
         score -= 8
 
+    # --- Rep tempo trend (velocity-loss proxy) ---
+    if rolling.rep_duration_trend_7d is not None and rolling.rep_duration_trend_7d > 1.15:
+        slow_pct = round((rolling.rep_duration_trend_7d - 1) * 100)
+        explain.append(
+            ExplainabilityFactor(
+                key="rep_tempo_trend",
+                label="Rep speed trend",
+                impact=-8,
+                detail=(
+                    f"Reps are ~{slow_pct}% slower than earlier sessions; "
+                    "slowing tempo at the same load indicates accumulating fatigue."
+                ),
+            )
+        )
+        score -= 8
+
     # --- ROM trend (proxy for mechanical fatigue) ---
     if rolling.rom_trend_7d is not None and rolling.rom_trend_7d < -4:
         explain.append(
