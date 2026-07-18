@@ -198,6 +198,25 @@ class ProgramAssignment(Base):
     program: Mapped["Program"] = relationship()
 
 
+class ChatMessage(Base):
+    """Direct message between a linked trainer and client."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    sender_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class BodyMetric(Base):
     __tablename__ = "body_metrics"
 

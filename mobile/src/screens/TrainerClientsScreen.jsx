@@ -115,6 +115,17 @@ export function TrainerClientsScreen() {
                       Linked {new Date(item.linkedAt).toLocaleDateString()}
                     </Text>
                   </View>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(app)/chat',
+                        params: { partnerId: item.clientId, partnerName: item.displayName },
+                      })
+                    }
+                  >
+                    <Ionicons name="chatbubbles-outline" size={21} color={colors.brandAlt} />
+                  </Pressable>
                   <Pressable hitSlop={10} onPress={() => confirmEndLink(item)}>
                     <Ionicons name="close-circle-outline" size={22} color={colors.textSecondary} />
                   </Pressable>

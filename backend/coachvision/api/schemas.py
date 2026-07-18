@@ -117,6 +117,42 @@ class InviteAcceptResponse(BaseModel):
     status: str
 
 
+class ChatSendRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class ChatMessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    sender_id: UUID = Field(alias="senderId")
+    recipient_id: UUID = Field(alias="recipientId")
+    body: str
+    created_at: datetime = Field(alias="createdAt")
+    read_at: datetime | None = Field(default=None, alias="readAt")
+
+
+class ConversationResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    partner_id: UUID = Field(alias="partnerId")
+    partner_name: str = Field(alias="partnerName")
+    partner_role: str = Field(alias="partnerRole")
+    last_message: str | None = Field(default=None, alias="lastMessage")
+    last_at: datetime | None = Field(default=None, alias="lastAt")
+    unread_count: int = Field(default=0, alias="unreadCount")
+
+
+class LiveClientSessionResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    session_id: str = Field(alias="sessionId")
+    client_id: UUID = Field(alias="clientId")
+    client_name: str = Field(alias="clientName")
+    exercise_id: str = Field(alias="exerciseId")
+    started_at: datetime = Field(alias="startedAt")
+
+
 class TrainerClientResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { Input } from '@/src/components/Input';
@@ -11,6 +12,7 @@ import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
 
 export function MyCoachScreen() {
+    const router = useRouter();
     const { themeMode, ensureFreshAccessToken } = useAppState();
     const colors = getThemeColors(themeMode);
     const [trainers, setTrainers] = useState([]);
@@ -107,7 +109,18 @@ export function MyCoachScreen() {
                   Coaching you since {new Date(trainer.linkedAt).toLocaleDateString()}
                 </Text>
               </View>
-              <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+              <Pressable
+                hitSlop={10}
+                onPress={() =>
+                  router.push({
+                    pathname: '/(app)/chat',
+                    params: { partnerId: trainer.clientId, partnerName: trainer.displayName },
+                  })
+                }
+                style={[styles.chatButton, { backgroundColor: `${colors.brandAlt}1A`, borderColor: colors.brandAlt }]}
+              >
+                <Ionicons name="chatbubbles-outline" size={19} color={colors.brandAlt} />
+              </Pressable>
             </Card>
           ))
         )}
@@ -121,6 +134,14 @@ const styles = StyleSheet.create({
     joinCard: { gap: 14 },
     sectionTitle: { fontSize: 17, fontWeight: '900' },
     trainerItem: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    chatButton: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     itemIcon: {
         width: 44,
         height: 44,

@@ -21,12 +21,14 @@ from .schemas import (
     InviteAcceptResponse,
     InviteCreateRequest,
     InviteResponse,
+    LiveClientSessionResponse,
     SessionFeedbackResponse,
     SessionResponse,
     TrainerClientResponse,
 )
 from ..db.models import ClientInvite, Exercise, RepEvent, Session, SessionFeedback, TrainerClient, User
 from ..db.session import get_db
+from ..realtime.connection_manager import live_registry
 
 _HOLD_EXERCISE_IDS = frozenset({"plank", "wall_sit"})
 
@@ -148,6 +150,37 @@ def accept_invite(
         trainer_name=trainer.display_name if trainer else "",
         status="active",
     )
+
+
+@router.get("/trainer/clients/live", response_model=list[LiveClientSessionResponse])
+def live_client_sessions(
+    db: DbSession = Depends(get_db),
+    trainer: User = Depends(require_role("trainer")),
+) -> list[LiveClientSessionResponse]:
+    """Which of my linked clients are in a live workout right now."""
+    rows = db.execute(
+        select(TrainerClient, User)
+        .join(User, User.id == TrainerClient.client_id)
+        .where(
+            TrainerClient.trainer_id == trainer.id,
+            TrainerClient.status == "active",
+        )
+    ).all()
+    clients_by_id = {str(link.client_id): (link.client_id, user) for link, user in rows}
+
+    out: list[LiveClientSessionResponse] = []
+    for info in live_registry.sessions_for_users(set(clients_by_id)):
+        client_id, user = clients_by_id[info.user_id]
+        out.append(
+            LiveClientSessionResponse(
+                session_id=info.session_id,
+                client_id=client_id,
+                client_name=user.display_name,
+                exercise_id=info.exercise_id,
+                started_at=datetime.fromtimestamp(info.started_at, tz=timezone.utc),
+            )
+        )
+    return out
 
 
 @router.get("/trainer/clients", response_model=list[TrainerClientResponse])

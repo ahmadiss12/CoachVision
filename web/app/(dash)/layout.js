@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 const TRAINER_LINKS = [
   { href: '/clients', label: '👥 Clients' },
   { href: '/programs', label: '📋 Programs' },
+  { href: '/messages', label: '💬 Messages' },
   { href: '/invites', label: '✉️ Invites' },
 ];
 

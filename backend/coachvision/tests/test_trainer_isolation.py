@@ -307,6 +307,95 @@ class TrainerIsolationTest(unittest.TestCase):
         body = plan.json()
         self.assertFalse(body["hasPlan"])
 
+    def test_17_live_sessions_visible_only_to_linked_trainer(self) -> None:
+        from coachvision.realtime.connection_manager import live_registry
+
+        self._link_c_to_a()
+        db = TestingSessionLocal()
+        client_c_id = str(db.query(User).filter_by(email="client.c@test.dev").one().id)
+        db.close()
+
+        live_registry.register_session("live-test-session", client_c_id, "squat")
+        try:
+            mine = client.get("/v1/trainer/clients/live", headers=self.trainer_a)
+            self.assertEqual(mine.status_code, 200, mine.text)
+            body = mine.json()
+            self.assertEqual(len(body), 1)
+            self.assertEqual(body[0]["sessionId"], "live-test-session")
+            self.assertEqual(body[0]["exerciseId"], "squat")
+
+            others = client.get("/v1/trainer/clients/live", headers=self.trainer_b)
+            self.assertEqual(others.json(), [])
+        finally:
+            live_registry.unregister_session("live-test-session")
+
+    def test_18_chat_requires_active_link(self) -> None:
+        self._link_c_to_a()
+
+        db = TestingSessionLocal()
+        client_c_id = str(db.query(User).filter_by(email="client.c@test.dev").one().id)
+        trainer_a_id = str(db.query(User).filter_by(email="trainer.a@test.dev").one().id)
+        db.close()
+
+        # Linked pair can message each other.
+        sent = client.post(
+            f"/v1/chat/{client_c_id}/messages",
+            json={"body": "How was the squat session?"},
+            headers=self.trainer_a,
+        )
+        self.assertEqual(sent.status_code, 201, sent.text)
+
+        reply = client.post(
+            f"/v1/chat/{trainer_a_id}/messages",
+            json={"body": "Felt strong, thanks coach!"},
+            headers=self.client_c,
+        )
+        self.assertEqual(reply.status_code, 201, reply.text)
+
+        # Unlinked trainer B can neither send nor read.
+        denied_send = client.post(
+            f"/v1/chat/{client_c_id}/messages",
+            json={"body": "hello"},
+            headers=self.trainer_b,
+        )
+        self.assertEqual(denied_send.status_code, 404)
+        denied_read = client.get(f"/v1/chat/{client_c_id}/messages", headers=self.trainer_b)
+        self.assertEqual(denied_read.status_code, 404)
+
+        # History is visible to both participants, in chronological order.
+        history = client.get(f"/v1/chat/{client_c_id}/messages", headers=self.trainer_a)
+        self.assertEqual(history.status_code, 200)
+        bodies = [m["body"] for m in history.json()]
+        self.assertIn("How was the squat session?", bodies)
+        self.assertIn("Felt strong, thanks coach!", bodies)
+
+    def test_19_chat_unread_and_conversations(self) -> None:
+        self._link_c_to_a()
+
+        db = TestingSessionLocal()
+        client_c_id = str(db.query(User).filter_by(email="client.c@test.dev").one().id)
+        db.close()
+
+        client.post(
+            f"/v1/chat/{client_c_id}/messages",
+            json={"body": "New program tomorrow"},
+            headers=self.trainer_a,
+        )
+
+        unread = client.get("/v1/chat/unread-count", headers=self.client_c).json()
+        self.assertGreaterEqual(unread["unread"], 1)
+
+        conversations = client.get("/v1/chat/conversations", headers=self.client_c).json()
+        self.assertGreaterEqual(len(conversations), 1)
+        trainer_conv = next(c for c in conversations if c["partnerRole"] == "trainer")
+        self.assertEqual(trainer_conv["lastMessage"], "New program tomorrow")
+        self.assertGreaterEqual(trainer_conv["unreadCount"], 1)
+
+        # Reading the thread clears the unread counter.
+        client.get(f"/v1/chat/{trainer_conv['partnerId']}/messages", headers=self.client_c)
+        unread_after = client.get("/v1/chat/unread-count", headers=self.client_c).json()
+        self.assertEqual(unread_after["unread"], 0)
+
     def test_09_role_visible_in_me(self) -> None:
         me = client.get("/v1/users/me", headers=self.trainer_a).json()
         self.assertEqual(me["role"], "trainer")

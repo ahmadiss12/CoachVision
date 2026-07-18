@@ -88,6 +88,22 @@ export async function api(path, options = {}) {
   }
 }
 
+/** ws:// (or wss://) URL for a backend WebSocket path, with the access token attached. */
+export function buildWsUrl(path, params = {}) {
+  const wsBase = API_ORIGIN.replace(/^http/i, 'ws');
+  const url = new URL(`${wsBase}${API_PREFIX}${path}`);
+  const tokens = loadTokens();
+  if (tokens?.accessToken) {
+    url.searchParams.set('token', tokens.accessToken);
+  }
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url.toString();
+}
+
 export async function login(email, password) {
   const pair = await rawRequest('/auth/login', {
     method: 'POST',

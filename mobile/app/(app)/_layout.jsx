@@ -32,5 +32,6 @@ export default function AppLayout() {
       <Stack.Screen name="my-coach"/>
       <Stack.Screen name="program-builder"/>
       <Stack.Screen name="assign-program"/>
+      <Stack.Screen name="chat"/>
     </Stack>);
 }

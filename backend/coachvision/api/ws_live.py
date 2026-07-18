@@ -10,10 +10,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session as DbSession
 
+from sqlalchemy import select
+
 from coachvision.ai.counters.dispatcher import CONFIG_PRESETS, ExerciseType
 from coachvision.core.security import decode_token
-from coachvision.db.models import Session as WorkoutSession
+from coachvision.db.models import Session as WorkoutSession, TrainerClient, User
 from coachvision.db.session import get_db
+from coachvision.realtime.connection_manager import live_registry
 from coachvision.realtime.contract import SCHEMA_VERSION, WsErrorCode
 from coachvision.realtime.pipeline import (
     LiveSessionState,
@@ -237,6 +240,7 @@ async def websocket_live(
                         websocket, str(workout.id), str(exc), WsErrorCode.UNSUPPORTED_EXERCISE
                     )
                     continue
+                live_registry.register_session(str(workout.id), str(user_uuid), exercise_id)
                 await websocket.send_json(_j({"type": "started", "sessionId": str(workout.id)}))
                 continue
 
@@ -278,7 +282,9 @@ async def websocket_live(
                     )
                     continue
 
-                await websocket.send_json(_metrics_message(result))
+                metrics = _metrics_message(result)
+                await websocket.send_json(metrics)
+                await live_registry.broadcast(session_state.session_id, metrics)
                 continue
 
             if mtype == "frame":
@@ -320,7 +326,9 @@ async def websocket_live(
                     )
                     continue
 
-                await websocket.send_json(_metrics_message(result))
+                metrics = _metrics_message(result)
+                await websocket.send_json(metrics)
+                await live_registry.broadcast(session_state.session_id, metrics)
                 continue
 
             if mtype == "reset":
@@ -336,15 +344,16 @@ async def websocket_live(
                 row = db.get(WorkoutSession, wid)
                 if row is not None:
                     finalize_completed_workout(db, row, summary)
-                await websocket.send_json(
-                    _j(
-                        {
-                            "type": "ended",
-                            "sessionId": session_state.session_id,
-                            "summary": summary,
-                        }
-                    )
+                ended_message = _j(
+                    {
+                        "type": "ended",
+                        "sessionId": session_state.session_id,
+                        "summary": summary,
+                    }
                 )
+                await websocket.send_json(ended_message)
+                await live_registry.broadcast(session_state.session_id, ended_message)
+                live_registry.unregister_session(session_state.session_id)
                 session_state = None
                 db_workout = None
                 continue
@@ -359,4 +368,83 @@ async def websocket_live(
     except WebSocketDisconnect:
         pass
     finally:
+        if session_state is not None:
+            # Client disconnected mid-workout: tell observers and clean up.
+            await live_registry.broadcast(
+                session_state.session_id,
+                _j({"type": "ended", "sessionId": session_state.session_id, "summary": None}),
+            )
+            live_registry.unregister_session(session_state.session_id)
         abort_active_workout(db, db_workout)
+
+
+@router.websocket("/ws/observe/{session_id}")
+async def websocket_observe(
+    websocket: WebSocket,
+    session_id: str,
+    token: str = Query(..., description="JWT access token of a trainer or admin"),
+    db: DbSession = Depends(get_db),
+) -> None:
+    """Read-only mirror of a client's live workout for their trainer.
+
+    Access rules: the caller must hold a valid access token for a trainer
+    (with an active link to the session's owner) or an admin, and the
+    session must currently be live. Observers only receive; any message
+    they send is ignored (used as keep-alive).
+    """
+    await websocket.accept()
+
+    try:
+        payload = decode_token(token)
+        if payload.get("token_type") != "access":
+            raise ValueError("Invalid token type")
+        viewer_id = UUID(str(payload["sub"]))
+    except Exception:  # noqa: BLE001
+        await _send_error(websocket, session_id, "Invalid token", WsErrorCode.INVALID_TOKEN)
+        await websocket.close(code=4401)
+        return
+
+    viewer = db.get(User, viewer_id)
+    if viewer is None or viewer.role not in ("trainer", "admin"):
+        await _send_error(websocket, session_id, "Trainer or admin required", WsErrorCode.INVALID_TOKEN)
+        await websocket.close(code=4403)
+        return
+
+    info = live_registry.get_session(session_id)
+    if info is None:
+        await _send_error(websocket, session_id, "Session is not live", "NOT_LIVE")
+        await websocket.close(code=4404)
+        return
+
+    if viewer.role == "trainer":
+        link = db.scalar(
+            select(TrainerClient).where(
+                TrainerClient.trainer_id == viewer.id,
+                TrainerClient.client_id == UUID(info.user_id),
+                TrainerClient.status == "active",
+            )
+        )
+        if link is None:
+            await _send_error(websocket, session_id, "Session is not live", "NOT_LIVE")
+            await websocket.close(code=4404)
+            return
+
+    live_registry.add_observer(session_id, websocket)
+    await websocket.send_json(
+        _j(
+            {
+                "type": "observing",
+                "sessionId": session_id,
+                "exerciseId": info.exercise_id,
+                "startedAt": info.started_at,
+            }
+        )
+    )
+    try:
+        while True:
+            # Observers are receive-only; incoming frames are keep-alives.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        live_registry.remove_observer(session_id, websocket)
