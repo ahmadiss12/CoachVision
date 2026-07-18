@@ -88,6 +88,10 @@ export default function LiveSessionPage() {
   const measurementLabel = metrics?.measurementLabel === 'SEC' ? 'seconds' : 'reps';
   const formName = metrics?.formName || '—';
   const formColor = FORM_TONES[formName] || (metrics?.formName ? 'var(--warning)' : 'var(--text-dim)');
+  // voice arrives as {label, text} from the backend; tolerate a plain string too.
+  const voiceText = typeof metrics?.voice === 'string' ? metrics.voice : metrics?.voice?.text || null;
+  const feedbackText =
+    typeof metrics?.feedback === 'string' ? metrics.feedback : metrics?.feedback?.text || null;
 
   return (
     <>
@@ -162,11 +166,11 @@ export default function LiveSessionPage() {
       <div className="card">
         <div className="section-title">Live coaching feedback</div>
         <p style={{ fontSize: 18, lineHeight: 1.6, fontWeight: 700 }}>
-          {metrics?.feedback || (status === 'live' ? 'Waiting for movement…' : 'Waiting for connection…')}
+          {feedbackText || (status === 'live' ? 'Waiting for movement…' : 'Waiting for connection…')}
         </p>
-        {metrics?.voice ? (
+        {voiceText ? (
           <p className="muted" style={{ marginTop: 6 }}>
-            Voice cue sent to client: &ldquo;{metrics.voice}&rdquo;
+            Voice cue sent to client: &ldquo;{voiceText}&rdquo;
           </p>
         ) : null}
       </div>
