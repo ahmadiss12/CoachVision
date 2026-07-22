@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.ahmadiss12.coachvision",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
