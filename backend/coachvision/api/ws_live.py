@@ -232,6 +232,7 @@ async def websocket_live(
                         session_id=str(workout.id),
                         exercise_name=exercise_id,
                         difficulty=difficulty,
+                        include_pose=bool(msg.get("includePose", False)),
                     )
                 except ValueError as exc:
                     abort_active_workout(db, workout)
@@ -269,7 +270,13 @@ async def websocket_live(
                     client_inference_ms = None
 
                 landmarks = msg.get("landmarks")
-                result = process_pose_landmarks(
+                # Offloaded like the JPEG path: the counters and the XGBoost
+                # form model are synchronous CPU work, and running them inline
+                # stalls the event loop for every other live session. Messages
+                # for one socket are still processed strictly in order, so the
+                # per-session state cannot interleave with itself.
+                result = await asyncio.to_thread(
+                    process_pose_landmarks,
                     session_state,
                     landmarks,
                     timestamp_ms,

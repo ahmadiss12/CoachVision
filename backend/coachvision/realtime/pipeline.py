@@ -52,6 +52,19 @@ _inference_lock = threading.Lock()
 _landmarker: vision.PoseLandmarker | None = None
 _model_missing_reason: str | None = None
 
+# One Euro filter tuning for live landmark smoothing.
+#
+# The filter behaves as an EMA whose group delay is roughly
+# ``(1 - alpha) / alpha * Te`` with ``alpha = r / (r + 1)`` and
+# ``r = 2*pi*cutoff*Te``. At a ~15 Hz live rate (Te = 0.067 s):
+#   min_cutoff 0.5 Hz -> alpha 0.17 -> ~320 ms of lag
+#   min_cutoff 2.0 Hz -> alpha 0.46 -> ~80 ms of lag
+# Landmarks arrive in normalized [0, 1] coordinates, so joint speed during a
+# squat is only ~0.3 units/s; beta must be O(1) to meaningfully raise the
+# cutoff during fast motion (the previous 0.01 added ~0.003 Hz, i.e. nothing).
+LANDMARK_FILTER_MIN_CUTOFF = 2.0
+LANDMARK_FILTER_BETA = 1.0
+
 
 def _model_path() -> Path:
     # coachvision/realtime/pipeline.py -> coachvision/ai/pose_landmarker.task
@@ -92,6 +105,10 @@ class LiveSessionState:
     session_id: str
     exercise_name: str
     difficulty: str
+    # Skeleton overlays are drawn client-side from the client's own landmarks,
+    # so echoing 33 landmarks back on every metrics message is wasted payload.
+    # Clients that want the server copy opt in via `includePose` on `start`.
+    include_pose: bool = False
     dispatcher: ExerciseDispatcher = field(default_factory=ExerciseDispatcher)
     frame_count: int = 0
     fps: float = 30.0
@@ -106,7 +123,10 @@ class LiveSessionState:
         self.dispatcher.set_exercise(self.exercise_name, level=self.difficulty)
         self.voice_policy = FeedbackPolicy(self.exercise_name, self.difficulty)
         for name in IMPORTANT_LANDMARKS:
-            self.landmark_filters[name] = LandmarkFilter(min_cutoff=0.5, beta=0.01)
+            self.landmark_filters[name] = LandmarkFilter(
+                min_cutoff=LANDMARK_FILTER_MIN_CUTOFF,
+                beta=LANDMARK_FILTER_BETA,
+            )
 
     def reset_counters(self) -> None:
         self.dispatcher.reset()
@@ -334,7 +354,7 @@ def _metrics_from_pose_landmarks(
         "form_probabilities": form_probabilities,
         "form_source": form_source,
         "confidence": confidence,
-        "pose": _serialize_pose_landmarks(pose_lms),
+        "pose": _serialize_pose_landmarks(pose_lms) if state.include_pose else None,
         "voice": voice,
         "timing_ms": timing_ms,
     }

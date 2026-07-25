@@ -14,12 +14,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { createMockWorkoutStream } from '../services/mock-workout-stream';
 import { createLiveSessionSocket } from '../services/ws/live-session';
 import { getExerciseMetadata } from '../constants/exercise-metadata';
-import { useAppState } from '../state/app-state';
+import { useAppState, useLiveMetrics } from '../state/app-state';
 import { colors } from '../theme/colors';
 
 const LANDMARK_SEND_INTERVAL_MS = 60;
 const UI_UPDATE_INTERVAL_MS = 80;
 const POSE_IN_FLIGHT_TIMEOUT_MS = 500;
+// Allowing more than one unacknowledged pose keeps the send rate governed by
+// LANDMARK_SEND_INTERVAL_MS instead of by the network round trip. With a
+// single slot the effective rate collapses to 1/RTT on a slow link.
+const MAX_POSE_IN_FLIGHT = 2;
 const VOICE_CUE_COOLDOWN_MS = 1200;
 const SAME_VOICE_CUE_COOLDOWN_MS = 3500;
 const FORM_TONE_META = {
@@ -618,7 +622,7 @@ export function WorkoutLiveScreen() {
     const webViewRef = useRef(null);
     const streamRef = useRef(null);
     const wsRef = useRef(null);
-    const isFrameInFlightRef = useRef(false);
+    const poseInFlightRef = useRef(0);
     const isRunningRef = useRef(false);
     const currentSessionIdRef = useRef(null);
     const metricsRef = useRef(null);
@@ -629,20 +633,12 @@ export function WorkoutLiveScreen() {
     const lastVoiceKeyRef = useRef(null);
     const isVoiceEnabledRef = useRef(true);
     const formToneRef = useRef('idle');
-    const metricsTimesRef = useRef([]);
-    const uiTimesRef = useRef([]);
     const latestEndedSummaryRef = useRef(null);
     const pendingEndResolveRef = useRef(null);
     const [isRunning, setIsRunning] = useState(false);
     const [isDemoMode, setIsDemoMode] = useState(false);
     const [liveStatus, setLiveStatus] = useState('idle');
     const [webStatus, setWebStatus] = useState('loading');
-    const [, setPerfStats] = useState({
-        aiFps: 0,
-        serverFps: 0,
-        uiFps: 0,
-        latencyMs: 0,
-    });
     const {
         authTokens,
         currentSession,
@@ -653,7 +649,10 @@ export function WorkoutLiveScreen() {
         setLatestError,
     } = useAppState();
 
-    const metrics = useMemo(() => currentSession?.latestMetrics ?? {
+    const liveMetrics = useLiveMetrics();
+    // Before a session exists the store still holds its idle defaults, so keep
+    // the screen's own "press play" placeholder for that case.
+    const metrics = useMemo(() => (currentSession ? liveMetrics : null) ?? {
         count: 0,
         rawCount: 0,
         measurementType: currentSession?.config?.measurementType,
@@ -666,11 +665,7 @@ export function WorkoutLiveScreen() {
         formConfidence: null,
         formSource: null,
         confidence: 0,
-    }, [
-        currentSession?.latestMetrics,
-        currentSession?.config?.measurementType,
-        currentSession?.config?.metricLabel,
-    ]);
+    }, [liveMetrics, currentSession]);
 
     const exerciseName = currentSession?.config?.exerciseName ?? 'squat';
     const difficulty = currentSession?.config?.difficulty ?? 'beginner';
@@ -709,17 +704,10 @@ export function WorkoutLiveScreen() {
         Speech.stop();
     }, []);
 
-    const countRecent = (times, now, windowMs = 3000) => {
-        while (times.length && now - times[0] > windowMs) {
-            times.shift();
-        }
-        return Math.round((times.length * 1000) / windowMs);
-    };
-
     const stopStreaming = useCallback(() => {
         streamRef.current?.stop();
         streamRef.current = null;
-        isFrameInFlightRef.current = false;
+        poseInFlightRef.current = 0;
     }, []);
 
     const beginMockStreaming = useCallback((reason) => {
@@ -789,10 +777,12 @@ export function WorkoutLiveScreen() {
         if (now - lastLandmarkSentAtRef.current < LANDMARK_SEND_INTERVAL_MS) {
             return;
         }
-        if (
-            isFrameInFlightRef.current &&
-            now - lastLandmarkSentAtRef.current < POSE_IN_FLIGHT_TIMEOUT_MS
-        ) {
+        if (now - lastLandmarkSentAtRef.current >= POSE_IN_FLIGHT_TIMEOUT_MS) {
+            // Nothing came back for a while: assume the outstanding poses were
+            // dropped rather than blocking the stream forever.
+            poseInFlightRef.current = 0;
+        }
+        if (poseInFlightRef.current >= MAX_POSE_IN_FLIGHT) {
             return;
         }
 
@@ -802,18 +792,13 @@ export function WorkoutLiveScreen() {
             landmarks: payload.landmarks,
             timestampMs: payload.timestampMs || now,
             clientInferenceMs: payload.inferenceMs,
-            localAiFps: payload.localAiFps,
         });
         if (!sent) {
             return;
         }
 
-        isFrameInFlightRef.current = true;
+        poseInFlightRef.current += 1;
         lastLandmarkSentAtRef.current = now;
-        setPerfStats((prev) => ({
-            ...prev,
-            aiFps: Number(payload.localAiFps || prev.aiFps || 0),
-        }));
     }, []);
 
     const handleWebViewMessage = useCallback((event) => {
@@ -837,10 +822,6 @@ export function WorkoutLiveScreen() {
                 sendPoseLandmarks(payload);
                 break;
             case 'noPose':
-                setPerfStats((prev) => ({
-                    ...prev,
-                    aiFps: Number(payload.localAiFps || prev.aiFps || 0),
-                }));
                 if (isRunningRef.current && now - lastNoPoseNoticeAtRef.current > 700) {
                     lastNoPoseNoticeAtRef.current = now;
                     updateMetrics({
@@ -884,12 +865,7 @@ export function WorkoutLiveScreen() {
             },
             onMetrics: (payload) => {
                 const now = Date.now();
-                isFrameInFlightRef.current = false;
-                metricsTimesRef.current.push(now);
-                const latencyMs = lastLandmarkSentAtRef.current
-                    ? Math.max(0, now - lastLandmarkSentAtRef.current)
-                    : 0;
-                const serverFps = countRecent(metricsTimesRef.current, now);
+                poseInFlightRef.current = Math.max(0, poseInFlightRef.current - 1);
                 const nextMetrics = {
                     count: payload.count,
                     rawCount: payload.rawCount ?? payload.count,
@@ -917,36 +893,14 @@ export function WorkoutLiveScreen() {
                 );
                 const phaseChanged = String(nextMetrics.state || '') !== String(previousMetrics.state || '');
                 if (!countChanged && !phaseChanged && now - lastUiUpdateAtRef.current < UI_UPDATE_INTERVAL_MS) {
-                    setPerfStats((prev) => ({
-                        ...prev,
-                        serverFps,
-                        latencyMs,
-                    }));
                     return;
                 }
                 lastUiUpdateAtRef.current = now;
-                uiTimesRef.current.push(now);
-                setPerfStats((prev) => ({
-                    ...prev,
-                    serverFps,
-                    uiFps: countRecent(uiTimesRef.current, now),
-                    latencyMs,
-                }));
                 updateMetrics(nextMetrics);
                 speakVoiceCue(payload.voice);
             },
             onNoPose: () => {
-                isFrameInFlightRef.current = false;
-                const now = Date.now();
-                const latencyMs = lastLandmarkSentAtRef.current
-                    ? Math.max(0, now - lastLandmarkSentAtRef.current)
-                    : 0;
-                metricsTimesRef.current.push(now);
-                setPerfStats((prev) => ({
-                    ...prev,
-                    serverFps: countRecent(metricsTimesRef.current, now),
-                    latencyMs,
-                }));
+                poseInFlightRef.current = Math.max(0, poseInFlightRef.current - 1);
                 updateMetrics({
                     ...metricsRef.current,
                     feedback: 'No person detected - step back so your full body is in frame.',
@@ -958,7 +912,7 @@ export function WorkoutLiveScreen() {
                 pendingEndResolveRef.current = null;
             },
             onError: (message, code) => {
-                isFrameInFlightRef.current = false;
+                poseInFlightRef.current = 0;
                 handleLiveError(message, code);
             },
         });

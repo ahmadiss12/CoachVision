@@ -14,6 +14,12 @@ Every server -> client JSON object includes **`schemaVersion`** (integer, curren
 
 - `started` - `{ schemaVersion, type, sessionId }`
 - `metrics` - exercise-aware `count` plus `measurementType`/`measurementLabel` (`reps`/`REPS` for dynamic exercises, `hold`/`SEC` for plank and wall sit), raw counter count in `rawCount`, state, angle, feedback, progress, formName, pose confidence, optional XGBoost fields (`formConfidence`, `formProbabilities`, `formSource`), optional hold fields (`holdDurationSec`, `totalHoldTimeSec`, `bestHoldSec`, `completedHolds`), optional `pose` (array of `[x, y, presence]` per landmark for skeleton overlay), optional `voice` (`{ label, text }` for mobile text-to-speech), optional `serverTimingMs`
+
+On the `pose` client path, `pose` is `null` unless the client opts in with
+`includePose: true` on `start`: the client already has those landmarks and
+draws the skeleton locally, so echoing 33 landmarks back per frame is ~2 KB of
+wasted payload and parse time. The `frame` (JPEG) path always returns `pose`,
+because there the detection only exists server-side.
 - `noPose` - no pose detected this frame, optional `serverTimingMs`
 - `resetAck` - counter reset acknowledged
 - `ended` - includes raw dispatcher `summary`; the richer mistake review is persisted as session feedback and returned by `GET /v1/sessions/{sessionId}/feedback`
@@ -21,7 +27,7 @@ Every server -> client JSON object includes **`schemaVersion`** (integer, curren
 
 ### Client messages
 
-- `start` - exerciseName, difficulty, optional targetSets/targetReps, optional sessionId (REST-linked)
+- `start` - exerciseName, difficulty, optional targetSets/targetReps, optional sessionId (REST-linked), optional `includePose` (default `false`; echo landmarks back on `metrics`)
 - `frame` - sessionId, imageJpegBase64, optional timestampMs
 - `pose` - sessionId, `landmarks` array from client-side pose detection, optional timestampMs/clientInferenceMs
 - `reset` - sessionId

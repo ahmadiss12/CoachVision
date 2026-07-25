@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+    createContext,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from 'react';
 import { getExerciseMetadata } from '../constants/exercise-metadata';
 import {
   loginUser,
@@ -66,6 +74,10 @@ function computeAgeFromDob(dateOfBirth) {
     return Math.max(1, age);
 }
 const AppStateContext = createContext(null);
+// Live metrics arrive ~15x/second. Routing them through AppStateContext would
+// re-render every screen mounted under the provider on every frame, so they
+// live in their own external store that only the live workout screen reads.
+const LiveMetricsContext = createContext(null);
 function formatExerciseName(exerciseId) {
     const meta = getExerciseMetadata(exerciseId);
     if (meta.label) {
@@ -138,6 +150,19 @@ export function AppStateProvider({ children }) {
     const [history, setHistory] = useState([]);
     const [bodyMetrics, setBodyMetrics] = useState([]);
     const userKeyRef = useRef(null);
+    const liveMetricsRef = useRef(defaultMetrics);
+    const liveMetricsListenersRef = useRef(new Set());
+
+    // Stable store identity, so subscribing never tears down on re-render.
+    const liveMetricsStore = useMemo(() => ({
+        subscribe: (listener) => {
+            liveMetricsListenersRef.current.add(listener);
+            return () => {
+                liveMetricsListenersRef.current.delete(listener);
+            };
+        },
+        getSnapshot: () => liveMetricsRef.current,
+    }), []);
 
     const setTokensEverywhere = (tokens) => {
         setAuthTokens(tokens);
@@ -655,9 +680,9 @@ export function AppStateProvider({ children }) {
                 config,
                 sessionId: started.id,
                 startedAt: started.startedAt || new Date().toISOString(),
-                latestMetrics: defaultMetrics,
                 fatiguePrediction: config.fatiguePrediction ?? null,
             };
+            updateMetrics(defaultMetrics);
             setCurrentSession(nextSession);
             setLatestError(null);
             return nextSession;
@@ -669,16 +694,11 @@ export function AppStateProvider({ children }) {
         }
     };
 
+    // Writes the snapshot and notifies subscribers directly: no setState, so
+    // the provider itself never re-renders on a metrics frame.
     const updateMetrics = (metrics) => {
-        setCurrentSession((prev) => {
-            if (!prev) {
-                return prev;
-            }
-            return {
-                ...prev,
-                latestMetrics: metrics,
-            };
-        });
+        liveMetricsRef.current = metrics;
+        liveMetricsListenersRef.current.forEach((listener) => listener());
     };
 
     const finishWorkout = async ({ endedSummary = null } = {}) => {
@@ -686,6 +706,7 @@ export function AppStateProvider({ children }) {
             return null;
         setIsBusy(true);
         try {
+            const liveMetrics = liveMetricsRef.current ?? defaultMetrics;
             const counterSummary = endedSummary?.summary ?? {};
             const exerciseMeta = getExerciseMetadata(currentSession.config.exerciseName);
             const isHoldExercise = exerciseMeta.measurementType === 'hold';
@@ -694,18 +715,18 @@ export function AppStateProvider({ children }) {
                     counterSummary.total_seconds
                     ?? counterSummary.totalSeconds
                     ?? counterSummary.total_hold_time
-                    ?? currentSession.latestMetrics.totalHoldTimeSec
-                    ?? currentSession.latestMetrics.bestHoldSec
-                    ?? currentSession.latestMetrics.holdDurationSec
-                    ?? currentSession.latestMetrics.count
+                    ?? liveMetrics.totalHoldTimeSec
+                    ?? liveMetrics.bestHoldSec
+                    ?? liveMetrics.holdDurationSec
+                    ?? liveMetrics.count
                     ?? 0
                 )
                 : counterSummary.total_reps
                     ?? counterSummary.totalReps
                     ?? endedSummary?.totalReps
-                    ?? currentSession.latestMetrics.count
+                    ?? liveMetrics.count
                     ?? 0;
-            const fallbackScore = Math.min(100, Math.round((currentSession.latestMetrics.confidence || 0) * 100));
+            const fallbackScore = Math.min(100, Math.round((liveMetrics.confidence || 0) * 100));
             const ended = await endSession(currentSession.sessionId, {
                 totalReps: fallbackReps,
                 avgFormScore: fallbackScore,
@@ -731,22 +752,22 @@ export function AppStateProvider({ children }) {
                     ?? counterSummary.totalSeconds
                     ?? counterSummary.total_hold_time
                     ?? ended.totalReps
-                    ?? currentSession.latestMetrics.totalHoldTimeSec
-                    ?? currentSession.latestMetrics.bestHoldSec
-                    ?? currentSession.latestMetrics.holdDurationSec
-                    ?? currentSession.latestMetrics.count
+                    ?? liveMetrics.totalHoldTimeSec
+                    ?? liveMetrics.bestHoldSec
+                    ?? liveMetrics.holdDurationSec
+                    ?? liveMetrics.count
                     ?? 0
                 )
                 : counterSummary.total_reps
                     ?? counterSummary.totalReps
                     ?? endedSummary?.totalReps
                     ?? ended.totalReps
-                    ?? currentSession.latestMetrics.count
+                    ?? liveMetrics.count
                     ?? 0;
             const score = feedback?.overallRating
                 ?? ended.avgFormScore
                 ?? counterSummary.detection_quality
-                ?? Math.min(100, Math.round((currentSession.latestMetrics.confidence || 0) * 100));
+                ?? Math.min(100, Math.round((liveMetrics.confidence || 0) * 100));
             const nextFatiguePrediction = await predictFatigue({
                 exerciseId: currentSession.config.exerciseName,
                 userContext: currentSession.config.readinessContext ?? {},
@@ -771,12 +792,16 @@ export function AppStateProvider({ children }) {
                 bodyWeightKg: ended.bodyWeightKg ?? currentSession.config.readinessContext?.bodyWeightKg ?? null,
                 reps,
                 score,
-                notes: feedback?.summaryText || currentSession.latestMetrics.feedback,
+                notes: feedback?.summaryText || liveMetrics.feedback,
                 feedback,
                 fatiguePrediction: nextFatiguePrediction ?? currentSession.fatiguePrediction ?? null,
             };
             setLatestSummary(summary);
-            setHistory((prev) => [summary, ...prev]);
+            // A concurrent loadHistory() can land between endSession() above and
+            // this prepend, and the server list already contains the session we
+            // just completed — so drop any existing copy instead of duplicating
+            // the key.
+            setHistory((prev) => [summary, ...prev.filter((item) => item.id !== summary.id)]);
             setCurrentSession(null);
             return summary;
         } catch (error) {
@@ -835,8 +860,25 @@ export function AppStateProvider({ children }) {
         updateMetrics,
         finishWorkout,
     };
-    return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
+    return (
+      <LiveMetricsContext.Provider value={liveMetricsStore}>
+        <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
+      </LiveMetricsContext.Provider>
+    );
 }
+
+/**
+ * Subscribe to live workout metrics without pulling them through AppStateContext.
+ * Only components calling this hook re-render when a metrics frame arrives.
+ */
+export function useLiveMetrics() {
+    const store = useContext(LiveMetricsContext);
+    if (!store) {
+        throw new Error('useLiveMetrics must be used inside AppStateProvider');
+    }
+    return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+}
+
 export function useAppState() {
     const context = useContext(AppStateContext);
     if (!context) {
