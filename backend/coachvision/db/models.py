@@ -42,10 +42,17 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    sessions: Mapped[list["Session"]] = relationship(back_populates="user")
+    # passive_deletes lets the database's ON DELETE CASCADE remove these rows.
+    # Without it SQLAlchemy tries to NULL out the child FK on user deletion,
+    # which fails because sessions.user_id is NOT NULL.
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
     body_metrics: Mapped[list["BodyMetric"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -279,6 +286,7 @@ class Session(Base):
         "SessionFeedback",
         back_populates="session",
         uselist=False,
+        passive_deletes=True,
     )
 
 

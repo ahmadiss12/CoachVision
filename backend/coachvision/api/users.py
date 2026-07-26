@@ -3,11 +3,18 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .deps import get_current_user
-from .schemas import BodyMetricCreateRequest, BodyMetricResponse, UpdateUserMeRequest, UserMeResponse
+from .schemas import (
+    BodyMetricCreateRequest,
+    BodyMetricResponse,
+    DeleteUserMeRequest,
+    UpdateUserMeRequest,
+    UserMeResponse,
+)
+from ..core.security import verify_password
 from ..db.models import BodyMetric, User
 from ..db.session import get_db
 
@@ -41,6 +48,43 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return UserMeResponse.model_validate(current_user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_me(
+    payload: DeleteUserMeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Permanently delete the caller's own account and all data derived from it.
+
+    Google Play requires an in-app path to account deletion for any app that
+    lets users create an account. Every table referencing ``users.id`` declares
+    ON DELETE CASCADE (or SET NULL), so the database removes the dependent rows;
+    the relationships use passive_deletes so SQLAlchemy does not try to NULL out
+    NOT NULL foreign keys on the way.
+    """
+    if not verify_password(payload.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password is incorrect",
+        )
+
+    if current_user.role == "admin":
+        # Losing the last admin would leave the platform unadministrable.
+        remaining_admins = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "admin", User.id != current_user.id)
+        )
+        if not remaining_admins:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete the last admin account",
+            )
+
+    db.delete(current_user)
+    db.commit()
 
 
 @router.get("/me/body-metrics", response_model=list[BodyMetricResponse])

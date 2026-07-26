@@ -57,6 +57,16 @@ class UpdateUserMeRequest(BaseModel):
     locale: str | None = None
 
 
+class DeleteUserMeRequest(BaseModel):
+    """Re-authentication for permanent account deletion.
+
+    The current password is required so that an unlocked phone (or a stolen
+    access token) is not enough to destroy the account irreversibly.
+    """
+
+    password: str = Field(min_length=1)
+
+
 class AdminUserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
