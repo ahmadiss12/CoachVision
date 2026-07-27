@@ -392,3 +392,133 @@ label.field {
 .login-card h1 span {
   color: var(--brand);
 }
+
+/* ---------- Public legal pages (privacy policy, account deletion) ---------- */
+.legal-wrap {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 48px 22px 80px;
+}
+
+.legal-wrap .logo {
+  font-size: 22px;
+  font-weight: 900;
+  margin-bottom: 26px;
+  display: inline-block;
+}
+
+.legal-wrap .logo span {
+  color: var(--brand);
+}
+
+.legal-wrap h1 {
+  font-size: 30px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.legal-wrap .updated {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin-bottom: 30px;
+}
+
+.legal-wrap h2 {
+  font-size: 19px;
+  font-weight: 800;
+  margin: 30px 0 10px;
+  color: var(--brand);
+}
+
+.legal-wrap h3 {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 20px 0 8px;
+}
+
+.legal-wrap p,
+.legal-wrap li {
+  line-height: 1.65;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.legal-wrap ul {
+  padding-left: 22px;
+  margin-bottom: 12px;
+}
+
+.legal-wrap a {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.legal-wrap .callout {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin: 18px 0;
+}
+
+.legal-wrap .callout.warn {
+  border-left-color: var(--danger);
+}
+
+.legal-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0 18px;
+  font-size: 14px;
+}
+
+.legal-wrap th,
+.legal-wrap td {
+  border: 1px solid var(--border);
+  padding: 9px 11px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.legal-wrap th {
+  background: var(--surface-alt);
+  font-weight: 800;
+}
+
+.legal-wrap .steps {
+  counter-reset: step;
+  list-style: none;
+  padding-left: 0;
+}
+
+.legal-wrap .steps li {
+  counter-increment: step;
+  padding: 10px 0 10px 42px;
+  position: relative;
+}
+
+.legal-wrap .steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #04121a;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+.legal-wrap .foot {
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+}
