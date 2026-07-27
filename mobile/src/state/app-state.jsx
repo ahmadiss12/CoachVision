@@ -29,6 +29,7 @@ import {
 } from '../services/api/sessions';
 import {
   createBodyMetricEntry as requestCreateBodyMetricEntry,
+  deleteCurrentUser,
   getCurrentUser,
   listBodyMetricEntries,
   updateCurrentUser,
@@ -444,6 +445,45 @@ export function AppStateProvider({ children }) {
         setAuthUser(null);
         resetUserScopedState();
     };
+
+    /**
+     * Permanently delete the account, then tear down local state exactly like
+     * logout so AppLayout redirects to the auth stack.
+     *
+     * Returns { ok, message } rather than throwing: the caller shows the
+     * failure inline in the confirmation sheet (a wrong password is an
+     * expected outcome here, not an app-level error).
+     */
+    const deleteAccount = async (password) => {
+        if (!password) {
+            return { ok: false, message: 'Enter your password to confirm.' };
+        }
+        setIsBusy(true);
+        try {
+            await deleteCurrentUser(password);
+            setTokensEverywhere(null);
+            setAuthUser(null);
+            resetUserScopedState();
+            return { ok: true };
+        } catch (error) {
+            if (error?.status === 403) {
+                return { ok: false, message: 'Password is incorrect.' };
+            }
+            if (error?.status === 409) {
+                return {
+                    ok: false,
+                    message: error?.message || 'This account cannot be deleted.',
+                };
+            }
+            return {
+                ok: false,
+                message: error?.message || 'Could not delete the account. Check your connection.',
+            };
+        } finally {
+            setIsBusy(false);
+        }
+    };
+
     const saveProfile = (payload) => {
         const safeDob = payload.dateOfBirth || '2000-01-01';
         const safeAge = computeAgeFromDob(safeDob);
@@ -841,6 +881,7 @@ export function AppStateProvider({ children }) {
         login,
         register,
         logout,
+        deleteAccount,
         ensureFreshAccessToken,
         loadCurrentUser,
         loadHistory,

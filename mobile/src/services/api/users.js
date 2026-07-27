@@ -12,6 +12,18 @@ export async function updateCurrentUser(payload) {
   });
 }
 
+/**
+ * Permanently delete the signed-in account. The password is re-checked
+ * server-side, so a stolen phone or leaked token cannot destroy an account.
+ */
+export async function deleteCurrentUser(password) {
+  return apiRequest('/users/me', {
+    method: 'DELETE',
+    auth: true,
+    body: { password },
+  });
+}
+
 export async function listBodyMetricEntries() {
   return apiRequest('/users/me/body-metrics', { auth: true });
 }

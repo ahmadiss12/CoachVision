@@ -20,12 +20,25 @@ export function clearApiAuthTokens() {
 }
 
 async function parseResponse(response) {
-  const contentType = response.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return response.json();
+  // 204/205 carry no body, but FastAPI still labels them application/json.
+  // Calling response.json() on an empty body throws, which would surface a
+  // successful delete as a failure.
+  if (response.status === 204 || response.status === 205) {
+    return null;
   }
   const text = await response.text();
-  return text || null;
+  if (!text) {
+    return null;
+  }
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+  return text;
 }
 
 function getErrorMessage(payload, fallback) {
