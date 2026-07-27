@@ -1,8 +1,7 @@
 import Link from 'next/link';
 
-// TODO(owner): confirm this is the address you want published publicly.
-// It appears in the Play Store listing and is where data requests will arrive.
-const CONTACT_EMAIL = 'ahmaisma755@gmail.com';
+// Published publicly in the Play Store listing; data requests arrive here.
+const CONTACT_EMAIL = 'ahmaisma555@gmail.com';
 const LAST_UPDATED = '28 July 2026';
 
 export const metadata = {

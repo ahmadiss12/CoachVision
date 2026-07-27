@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
-// TODO(owner): confirm this is the address you want published publicly.
-const CONTACT_EMAIL = 'ahmaisma755@gmail.com';
+// Published publicly in the Play Store listing; deletion requests arrive here.
+const CONTACT_EMAIL = 'ahmaisma555@gmail.com';
 const LAST_UPDATED = '28 July 2026';
 const APP_NAME = 'CoachVision';
 const PACKAGE_NAME = 'com.ahmadiss12.coachvision';
