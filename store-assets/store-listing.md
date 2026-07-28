@@ -155,12 +155,17 @@ privacy policy, which currently states the app is not directed at under-13s.
 
 | Field | Value |
 |---|---|
-| Privacy policy | `https://<your-vercel-domain>/privacy` |
-| Account deletion | `https://<your-vercel-domain>/delete-account` |
+| Privacy policy | `https://web-ahmadiss12s-projects.vercel.app/privacy` |
+| Account deletion | `https://web-ahmadiss12s-projects.vercel.app/delete-account` |
 | Support email | ahmaisma555@gmail.com |
 
-Both pages must load **without any login**. Confirm Vercel Deployment
-Protection is disabled before submitting.
+Verified live and publicly reachable (HTTP 200, no login redirect).
+
+Use the domain above, **not** the per-deployment URL that `vercel --prod`
+prints. Deployment URLs look like `web-ovj85f24m-...vercel.app` and change on
+every deploy, so a listing pointing at one would break the next time the site
+is deployed. `web-ahmadiss12s-projects.vercel.app` always tracks the current
+production deployment.
 
 ---
 
