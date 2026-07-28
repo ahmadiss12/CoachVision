@@ -18,6 +18,7 @@ import { Card } from '@/src/components/Card';
 import { Input } from '@/src/components/Input';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
+import { TrainerDashboardCard } from '@/src/components/TrainerDashboardCard';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
 
@@ -32,7 +33,9 @@ export function SettingsScreen() {
         profile,
         themeMode,
         toggleThemeMode,
+        userRole,
     } = useAppState();
+    const canUseWebDashboard = userRole === 'trainer' || userRole === 'admin';
     const colors = getThemeColors(themeMode);
     const bmiCategory = getBmiCategoryLabel(profile?.bmi ?? null);
     const displayName = authUser?.email?.split('@')[0] ?? 'Athlete';
@@ -106,6 +109,8 @@ export function SettingsScreen() {
             <Switch value={themeMode === 'light'} onValueChange={toggleThemeMode} thumbColor={themeMode === 'light' ? colors.brandAlt : '#f4f3f4'} trackColor={{ false: '#6B7280', true: '#99F6E4' }}/>
           </View>
         </Card>
+
+        {canUseWebDashboard ? <TrainerDashboardCard /> : null}
 
         <PrimaryButton icon="log-out-outline" title="Log out" variant="danger" onPress={logout}/>
 

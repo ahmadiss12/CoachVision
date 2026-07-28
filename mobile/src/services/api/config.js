@@ -45,10 +45,20 @@ const configuredWsOrigin = normalizeOriginForPlatform(withDefault(process.env.EX
 const derivedWsOrigin = API_ORIGIN.replace(/^http/i, 'ws');
 const WS_ORIGIN = trimTrailingSlash(configuredWsOrigin || derivedWsOrigin);
 
+// Trainer-facing web dashboard. Deliberately not normalized for the dev host:
+// this is a public site, not the local backend, so it stays as configured.
+const WEB_DASHBOARD_URL = trimTrailingSlash(
+  withDefault(
+    process.env.EXPO_PUBLIC_WEB_DASHBOARD_URL,
+    'https://web-ahmadiss12s-projects.vercel.app'
+  )
+);
+
 export const apiConfig = {
   apiOrigin: API_ORIGIN,
   apiPrefix: API_PREFIX.startsWith('/') ? API_PREFIX : `/${API_PREFIX}`,
   wsOrigin: WS_ORIGIN,
+  webDashboardUrl: WEB_DASHBOARD_URL,
 };
 
 export function buildApiUrl(path) {

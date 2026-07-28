@@ -5,6 +5,7 @@ import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
+import { TrainerDashboardCard } from '@/src/components/TrainerDashboardCard';
 import { endClientLink, listClients } from '@/src/services/api/trainer';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
@@ -86,6 +87,8 @@ export function TrainerClientsScreen() {
             <Text style={[styles.empty, { color: colors.textSecondary }]}>
               Create an invite code in the Invites tab and share it with your client.
             </Text>
+            <View style={[styles.emptyDivider, { backgroundColor: colors.border }]} />
+            <TrainerDashboardCard compact />
           </Card>
         ) : (
           <FlatList
@@ -164,4 +167,5 @@ const styles = StyleSheet.create({
     },
     emptyTitle: { fontSize: 18, fontWeight: '900' },
     empty: { textAlign: 'center', lineHeight: 20 },
+    emptyDivider: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: 4 },
 });
