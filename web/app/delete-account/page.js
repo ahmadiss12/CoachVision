@@ -6,10 +6,19 @@ const LAST_UPDATED = '28 July 2026';
 const APP_NAME = 'CoachVision';
 const PACKAGE_NAME = 'com.ahmadiss12.coachvision';
 
+const DESCRIPTION =
+  'How to permanently delete your CoachVision account and all associated data.';
+
 export const metadata = {
   title: 'Delete your account | CoachVision',
-  description:
-    'How to permanently delete your CoachVision account and all associated data.',
+  description: DESCRIPTION,
+  openGraph: {
+    title: 'Delete your CoachVision account',
+    description: DESCRIPTION,
+    url: '/delete-account',
+    siteName: 'CoachVision',
+    type: 'website',
+  },
 };
 
 export default function DeleteAccountPage() {

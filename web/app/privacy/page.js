@@ -4,10 +4,19 @@ import Link from 'next/link';
 const CONTACT_EMAIL = 'ahmaisma555@gmail.com';
 const LAST_UPDATED = '28 July 2026';
 
+const DESCRIPTION =
+  'How CoachVision collects, uses, stores, and deletes your personal and fitness data.';
+
 export const metadata = {
   title: 'Privacy Policy | CoachVision',
-  description:
-    'How CoachVision collects, uses, stores, and deletes your personal and fitness data.',
+  description: DESCRIPTION,
+  openGraph: {
+    title: 'CoachVision Privacy Policy',
+    description: DESCRIPTION,
+    url: '/privacy',
+    siteName: 'CoachVision',
+    type: 'website',
+  },
 };
 
 export default function PrivacyPolicyPage() {
