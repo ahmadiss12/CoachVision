@@ -1,12 +1,15 @@
-# Core dependencies
-opencv-python>=4.8.0
-mediapipe>=0.10.0
-numpy>=1.24.0
-xgboost>=2.1.4,<3.0
-scikit-learn>=1.6.0,<2.0
-pandas>=2.2.0,<3.0
+# Runtime dependencies for the deployed API.
+#
+# The mobile app runs MediaPipe on-device and sends pose landmarks over the
+# WebSocket, so the server never decodes video. OpenCV and MediaPipe are
+# therefore NOT installed here -- see requirements-serverpose.txt if you need
+# the `frame` (JPEG upload) path, which does server-side pose detection.
 
-# Backend API (Option C)
+# AI / numeric
+numpy>=1.24.0
+xgboost>=2.1.4,<3.0   # pulls in scipy; required by the squat form classifier
+
+# Backend API
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 sqlalchemy>=2.0.0

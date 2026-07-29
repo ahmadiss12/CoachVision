@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 
 from coachvision.ai.counters.dispatcher import ExerciseDispatcher
@@ -22,6 +21,15 @@ from coachvision.ai.utils.geometry import LandmarkFilter
 from coachvision.ai.voice.feedback_policy import FeedbackLabel, FeedbackPolicy
 from coachvision.ai.voice.phrases import get_phrase
 from coachvision.realtime.contract import WsErrorCode
+
+# OpenCV and MediaPipe are only needed for the `frame` (JPEG upload) path, where
+# the server does its own pose detection. The mobile app runs MediaPipe on-device
+# and sends landmarks instead, so a deployment that only serves that path can
+# skip roughly 230 MB of dependencies. See requirements-serverpose.txt.
+try:
+    import cv2
+except ImportError:  # pragma: no cover - optional server-side pose extra
+    cv2 = None  # type: ignore[assignment]
 
 try:
     import mediapipe as mp
@@ -249,6 +257,8 @@ def _voice_cue_for_metrics(
 
 
 def decode_jpeg_bgr(image_jpeg_base64: str) -> np.ndarray | None:
+    if cv2 is None:
+        return None
     raw = base64.b64decode(image_jpeg_base64)
     arr = np.frombuffer(raw, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
@@ -485,6 +495,13 @@ def process_jpeg_frame(
       - {"kind": "error", "code": str, "message": str}
     """
     total_start = time.perf_counter()
+    if cv2 is None:
+        return {
+            "kind": "error",
+            "code": WsErrorCode.MODEL_MISSING,
+            "message": "server_pose_extra_not_installed",
+        }
+
     decode_start = time.perf_counter()
     frame = decode_jpeg_bgr(image_jpeg_base64)
     if frame is None:

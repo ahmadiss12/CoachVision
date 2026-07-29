@@ -1,0 +1,16 @@
+# Optional extra: server-side pose detection for the `frame` WebSocket path,
+# where the client uploads JPEG frames and the server runs MediaPipe itself.
+#
+# The shipped mobile app does NOT need this. It detects pose on-device and
+# sends landmarks via the `pose` message, which the API serves using only the
+# packages in requirements.txt. Installing this adds roughly 230 MB
+# (mediapipe pulls matplotlib, opencv-contrib-python and sounddevice).
+#
+# Install alongside the base requirements:
+#   pip install -r requirements.txt -r requirements-serverpose.txt
+#
+# Without it, `frame` messages return the error `server_pose_extra_not_installed`
+# and every other endpoint works normally.
+
+opencv-python>=4.8.0
+mediapipe>=0.10.0
