@@ -36,3 +36,8 @@ Thumbs.db
 **/pose_landmarker.task
 **/models/*.pkl
 **/squat_dataset/
+
+# Store assets kept local: uploaded straight to Play Console / YouTube,
+# never needed in the repo, and video files bloat clone size permanently.
+store-assets/*.mp4
+store-assets/*.mov
