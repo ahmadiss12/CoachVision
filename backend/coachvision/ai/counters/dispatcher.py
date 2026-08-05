@@ -6,7 +6,7 @@ Provides a unified interface for the main pipeline.
 
 from typing import Dict, Tuple, Optional, Any, List
 from enum import Enum
-import importlib
+import logging
 
 from .interface import ExerciseCounter
 from .squat import SquatCounter, SquatConfig
@@ -31,6 +31,8 @@ from .reference_angles import (
     DEADLIFT_PRESET_FLEXION,
     DEADLIFT_PRESET_BUFFER,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ExerciseType(Enum):
@@ -185,26 +187,25 @@ class ExerciseDispatcher:
         counter_class, config_class = self._COUNTER_MAP[exercise_type]
         
         config_kwargs = {
-        'min_confidence': 0.5  # Default value
-    }
-    
+            'min_confidence': 0.5  # Default value
+        }
+
         # Apply preset if available
         if exercise_type.value in CONFIG_PRESETS[level]:
             config_kwargs.update(CONFIG_PRESETS[level][exercise_type.value])
-    
+
         # Apply custom overrides
         if custom_config:
             config_kwargs.update(custom_config)
-    
-            # Create config instance
+
+        # Create config instance
         config = config_class(**config_kwargs)
-        
-        
+
         # Initialize counter
         self._counter = counter_class(config)
         self._current_exercise = exercise_type
-        
-        print(f"[OK] Switched to {exercise_type.value} ({level} level)")
+
+        logger.info("Switched to %s (%s level)", exercise_type.value, level)
     
     def update(self, landmarks: Dict[str, Tuple[float, float]], confidence: float) -> Tuple[int, Enum, float]:
         """
