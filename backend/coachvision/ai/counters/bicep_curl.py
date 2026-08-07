@@ -6,7 +6,7 @@ Tracks elbow angle to count repetitions and checks for proper form
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -74,7 +74,11 @@ class BicepCurlCounter(ExerciseCounter):
     - Full range of motion
     """
     
-    def __init__(self, config: Optional[BicepCurlConfig] = None):
+    def __init__(
+        self,
+        config: Optional[BicepCurlConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         """
         Initialize bicep curl counter.
         
@@ -82,6 +86,9 @@ class BicepCurlCounter(ExerciseCounter):
             config: Configuration object (uses defaults if None)
         """
         self.config = config or BicepCurlConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = BicepCurlState.IDLE
@@ -346,7 +353,7 @@ class BicepCurlCounter(ExerciseCounter):
             # DOWN -> ASCENDING: Starting curl
             if angle < cfg.extension_threshold - cfg.buffer:
                 self.state = BicepCurlState.ASCENDING
-                self._rep_start_time = time.time()
+                self._rep_start_time = self._clock()
                 self._min_angle_in_rep = angle
                 self._max_angle_in_rep = max(self._max_angle_in_rep, angle)
                 self._max_elbow_movement = 0.0
@@ -383,7 +390,7 @@ class BicepCurlCounter(ExerciseCounter):
             if angle > cfg.extension_threshold:
                 self.count += 1
                 self.state = BicepCurlState.DOWN
-                self._rep_end_time = time.time()
+                self._rep_end_time = self._clock()
                 self._store_rep_metrics()
                 self._reset_rep_tracking()
             

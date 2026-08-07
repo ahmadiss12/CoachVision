@@ -6,7 +6,7 @@ Similar to plank but for lower body.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -73,8 +73,15 @@ class WallSitCounter(ExerciseCounter):
     - Knee position relative to ankles (should not pass toes)
     """
     
-    def __init__(self, config: Optional[WallSitConfig] = None):
+    def __init__(
+        self,
+        config: Optional[WallSitConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         self.config = config or WallSitConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = WallSitState.IDLE
@@ -233,7 +240,7 @@ class WallSitCounter(ExerciseCounter):
         self._total_frames += 1
         self._form_warnings = []
         
-        current_time = time.time()
+        current_time = self._clock()
         
         if confidence < self.config.min_confidence:
             if self.state != WallSitState.IDLE:
@@ -384,7 +391,7 @@ class WallSitCounter(ExerciseCounter):
     
     def reset(self) -> None:
         """Reset counter to initial state."""
-        current_time = time.time()
+        current_time = self._clock()
         
         if self.state == WallSitState.HOLDING and self._hold_start_time is not None:
             self._end_hold_session(current_time)
@@ -420,7 +427,7 @@ class WallSitCounter(ExerciseCounter):
         if self.state != WallSitState.HOLDING or self._hold_start_time is None:
             return 0.0
         
-        current_duration = time.time() - self._hold_start_time
+        current_duration = self._clock() - self._hold_start_time
         
         # Progress to min hold time (0 to 0.5)
         if current_duration < self.config.min_hold_time:
@@ -448,7 +455,7 @@ class WallSitCounter(ExerciseCounter):
         
         if self.state == WallSitState.HOLDING:
             if self._hold_start_time:
-                duration = time.time() - self._hold_start_time
+                duration = self._clock() - self._hold_start_time
                 
                 if duration < self.config.min_hold_time:
                     remaining = self.config.min_hold_time - duration
@@ -470,7 +477,7 @@ class WallSitCounter(ExerciseCounter):
     def get_current_hold_duration(self) -> float:
         """Get duration of current hold."""
         if self.state == WallSitState.HOLDING and self._hold_start_time:
-            return time.time() - self._hold_start_time
+            return self._clock() - self._hold_start_time
         return 0.0
     
     def get_total_hold_time(self) -> float:

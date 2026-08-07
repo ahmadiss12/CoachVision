@@ -5,7 +5,7 @@ Tracks knee lift height and alternation between legs.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -66,8 +66,15 @@ class HighKneesCounter(ExerciseCounter):
     Each complete cycle (left+right) counts as 1 rep.
     """
     
-    def __init__(self, config: Optional[HighKneesConfig] = None):
+    def __init__(
+        self,
+        config: Optional[HighKneesConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         self.config = config or HighKneesConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = HighKneesState.IDLE
@@ -249,7 +256,7 @@ class HighKneesCounter(ExerciseCounter):
             right_raised=right_raised,
             left_angle=smoothed_left,
             right_angle=smoothed_right,
-            timestamp=time.time()
+            timestamp=self._clock()
         )
         
         # Return average hip angle as primary metric

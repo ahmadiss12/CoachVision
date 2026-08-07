@@ -4,9 +4,11 @@ Routes pose landmarks to the appropriate exercise counter based on exercise name
 Provides a unified interface for the main pipeline.
 """
 
-from typing import Dict, Tuple, Optional, Any, List
+from typing import Callable, Dict, Tuple, Optional, Any, List
 from enum import Enum
 import importlib
+import logging
+import time
 
 from .interface import ExerciseCounter
 from .squat import SquatCounter, SquatConfig
@@ -31,6 +33,9 @@ from .reference_angles import (
     DEADLIFT_PRESET_FLEXION,
     DEADLIFT_PRESET_BUFFER,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExerciseType(Enum):
@@ -159,15 +164,24 @@ class ExerciseDispatcher:
         self._counter: Optional[ExerciseCounter] = None
         self._available_exercises = [ex.value for ex in ExerciseType]
     
-    def set_exercise(self, exercise_name: str, level: str = "intermediate", custom_config: Optional[Dict] = None) -> None:
+    def set_exercise(
+        self,
+        exercise_name: str,
+        level: str = "intermediate",
+        custom_config: Optional[Dict] = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
         """
         Set the current exercise and initialize its counter.
-        
+
         Args:
             exercise_name: Name of exercise (e.g., "squat", "pushup")
             level: Experience level - "beginner", "intermediate", or "advanced"
             custom_config: Optional custom configuration overrides
-        
+            clock: Time source handed to the counter. Defaults to the wall clock;
+                the benchmark harness passes a replay clock driven by recorded
+                frame timestamps so a clip can be replayed faster than real time.
+
         Raises:
             ValueError: If exercise name or level is invalid
         """
@@ -184,27 +198,23 @@ class ExerciseDispatcher:
         # Get counter class and config class
         counter_class, config_class = self._COUNTER_MAP[exercise_type]
         
-        config_kwargs = {
-        'min_confidence': 0.5  # Default value
-    }
-    
+        config_kwargs = {'min_confidence': 0.5}
+
         # Apply preset if available
         if exercise_type.value in CONFIG_PRESETS[level]:
             config_kwargs.update(CONFIG_PRESETS[level][exercise_type.value])
-    
+
         # Apply custom overrides
         if custom_config:
             config_kwargs.update(custom_config)
-    
-            # Create config instance
+
         config = config_class(**config_kwargs)
-        
-        
+
         # Initialize counter
-        self._counter = counter_class(config)
+        self._counter = counter_class(config, clock=clock)
         self._current_exercise = exercise_type
-        
-        print(f"[OK] Switched to {exercise_type.value} ({level} level)")
+
+        logger.debug("Switched to %s (%s level)", exercise_type.value, level)
     
     def update(self, landmarks: Dict[str, Tuple[float, float]], confidence: float) -> Tuple[int, Enum, float]:
         """

@@ -6,7 +6,7 @@ Focuses on maintaining a straight back and proper hip drive.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -78,7 +78,11 @@ class DeadliftCounter(ExerciseCounter):
     - No rounding of spine
     """
     
-    def __init__(self, config: Optional[DeadliftConfig] = None):
+    def __init__(
+        self,
+        config: Optional[DeadliftConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         """
         Initialize deadlift counter.
         
@@ -86,6 +90,9 @@ class DeadliftCounter(ExerciseCounter):
             config: Configuration object (uses defaults if None)
         """
         self.config = config or DeadliftConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = DeadliftState.IDLE
@@ -430,7 +437,7 @@ class DeadliftCounter(ExerciseCounter):
             # UP -> DESCENDING: Start deadlift (hip angle decreases)
             if angle < cfg.extension_threshold - cfg.buffer:
                 self.state = DeadliftState.DESCENDING
-                self._rep_start_time = time.time()
+                self._rep_start_time = self._clock()
                 self._min_angle_in_rep = angle
                 self._max_angle_in_rep = max(self._max_angle_in_rep, angle)
                 self._initial_hip_height = hip_height
@@ -470,7 +477,7 @@ class DeadliftCounter(ExerciseCounter):
             if angle > cfg.extension_threshold:
                 self.count += 1
                 self.state = DeadliftState.UP
-                self._rep_end_time = time.time()
+                self._rep_end_time = self._clock()
                 self._store_rep_metrics()
                 self._reset_rep_tracking()
             

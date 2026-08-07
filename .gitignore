@@ -37,6 +37,12 @@ Thumbs.db
 **/models/*.pkl
 **/squat_dataset/
 
+# Generated benchmark clips: ~2 MB of JSON, reproducible from a seeded
+# generator with `python scripts/make_synthetic_clips.py`. Hand-labelled
+# recordings under backend/fixtures/ are deliberately NOT ignored -- the
+# labelling is the work, and landmark coordinates carry no image data.
+backend/fixtures/**/synthetic_*
+
 # Store assets kept local: uploaded straight to Play Console / YouTube,
 # never needed in the repo, and video files bloat clone size permanently.
 store-assets/*.mp4

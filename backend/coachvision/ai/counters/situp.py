@@ -5,7 +5,7 @@ Tracks torso angle relative to ground to count repetitions.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -64,8 +64,15 @@ class SitUpCounter(ExerciseCounter):
     DOWN -> ASCENDING -> UP -> DESCENDING -> DOWN (count increments)
     """
     
-    def __init__(self, config: Optional[SitUpConfig] = None):
+    def __init__(
+        self,
+        config: Optional[SitUpConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         self.config = config or SitUpConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         self.state = SitUpState.IDLE
         self.count = 0
@@ -233,7 +240,7 @@ class SitUpCounter(ExerciseCounter):
         elif self.state == SitUpState.DOWN:
             if angle > cfg.flexion_threshold + cfg.buffer:
                 self.state = SitUpState.ASCENDING
-                self._rep_start_time = time.time()
+                self._rep_start_time = self._clock()
                 self._min_angle_in_rep = angle
                 self._max_angle_in_rep = angle
         
@@ -256,7 +263,7 @@ class SitUpCounter(ExerciseCounter):
             if angle < cfg.flexion_threshold:
                 self.count += 1
                 self.state = SitUpState.DOWN
-                self._rep_end_time = time.time()
+                self._rep_end_time = self._clock()
                 self._store_rep_metrics()
                 self._reset_rep_tracking()
             elif angle > cfg.extension_threshold:

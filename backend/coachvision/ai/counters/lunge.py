@@ -6,7 +6,7 @@ Handles alternating legs and checks for proper lunge form.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -88,7 +88,11 @@ class LungeCounter(ExerciseCounter):
     Handles both left and right leg lunges and enforces proper form.
     """
     
-    def __init__(self, config: Optional[LungeConfig] = None):
+    def __init__(
+        self,
+        config: Optional[LungeConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         """
         Initialize lunge counter.
         
@@ -96,6 +100,9 @@ class LungeCounter(ExerciseCounter):
             config: Configuration object (uses defaults if None)
         """
         self.config = config or LungeConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = LungeState.IDLE
@@ -353,7 +360,7 @@ class LungeCounter(ExerciseCounter):
         self._last_rear_knee_angle = smoothed_rear
         
         # Check form before updating state
-        timestamp = time.time()
+        timestamp = self._clock()
         
         # Check leg alternation
         self._check_alternating(current_leg, timestamp)

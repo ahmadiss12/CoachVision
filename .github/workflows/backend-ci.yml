@@ -33,3 +33,12 @@ jobs:
 
       - name: Run tests
         run: pytest coachvision/tests -v
+
+      # Regression gate for the exercise counters. The clips are regenerated
+      # rather than committed (seeded, so the result is deterministic), and the
+      # run fails if any exercise scores below backend/BASELINE.md. See
+      # docs/COUNTER_BENCHMARK.md.
+      - name: Benchmark counters against baseline
+        run: |
+          python scripts/make_synthetic_clips.py
+          python scripts/benchmark_counters.py --per-clip --check BASELINE.md

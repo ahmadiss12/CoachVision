@@ -6,7 +6,7 @@ Combines aspects of push-up (plank position) and high knees (alternating legs).
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -70,8 +70,15 @@ class MountainClimberCounter(ExerciseCounter):
     Each complete left+right cycle counts as 1 rep.
     """
     
-    def __init__(self, config: Optional[MountainClimberConfig] = None):
+    def __init__(
+        self,
+        config: Optional[MountainClimberConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         self.config = config or MountainClimberConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = MountainClimberState.IDLE
@@ -267,7 +274,7 @@ class MountainClimberCounter(ExerciseCounter):
             right_driven=right_driven,
             left_angle=smoothed_left,
             right_angle=smoothed_right,
-            timestamp=time.time()
+            timestamp=self._clock()
         )
         
         return self.count, self.state, smoothed_plank

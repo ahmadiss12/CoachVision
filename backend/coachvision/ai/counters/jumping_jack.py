@@ -6,7 +6,7 @@ More complex due to coordinated movement of all four limbs.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -73,8 +73,15 @@ class JumpingJackCounter(ExerciseCounter):
     Requires coordinated movement of all four limbs.
     """
     
-    def __init__(self, config: Optional[JumpingJackConfig] = None):
+    def __init__(
+        self,
+        config: Optional[JumpingJackConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         self.config = config or JumpingJackConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = JumpingJackState.IDLE
@@ -278,7 +285,7 @@ class JumpingJackCounter(ExerciseCounter):
         leg_moving = len(self._leg_angle_buffer) > 1 and abs(self._leg_angle_buffer[-1] - self._leg_angle_buffer[-2]) > 5
         
         # Check coordination
-        self._check_coordination(arm_moving, leg_moving, time.time())
+        self._check_coordination(arm_moving, leg_moving, self._clock())
         
         # Check if arms are straight
         if smoothed_arm < self.config.arm_extension_threshold - 20:
@@ -292,7 +299,7 @@ class JumpingJackCounter(ExerciseCounter):
         self._update_state(
             arm_height=arm_height,
             feet_distance=smoothed_feet,
-            timestamp=time.time()
+            timestamp=self._clock()
         )
         
         return self.count, self.state, smoothed_arm

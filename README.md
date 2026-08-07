@@ -62,6 +62,7 @@ EXPO_PUBLIC_WS_ORIGIN=ws://192.168.0.103:8001
 
 - [Project structure](docs/PROJECT_STRUCTURE.md)
 - [Exercises and fatigue logic](docs/EXERCISES_AND_FATIGUE.md)
+- [Counter accuracy benchmark](docs/COUNTER_BENCHMARK.md)
 - [Backend details](backend/README.md)
 - [Mobile details](mobile/README.md)
 
@@ -73,6 +74,14 @@ Backend:
 cd backend
 python -m compileall coachvision
 python -m unittest coachvision.tests.test_session_feedback_generator
+```
+
+Counter accuracy (see [docs/COUNTER_BENCHMARK.md](docs/COUNTER_BENCHMARK.md)):
+
+```powershell
+cd backend
+python scripts/make_synthetic_clips.py
+python scripts/benchmark_counters.py --per-clip
 ```
 
 Mobile:

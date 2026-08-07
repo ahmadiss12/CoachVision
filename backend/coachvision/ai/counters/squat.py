@@ -6,7 +6,7 @@ Tracks knee angle to count repetitions and provide form feedback.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -115,7 +115,11 @@ class SquatCounter(ExerciseCounter):
     Uses hysteresis to prevent false counts when hovering near thresholds.
     """
     
-    def __init__(self, config: Optional[SquatConfig] = None):
+    def __init__(
+        self,
+        config: Optional[SquatConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         """
         Initialize squat counter.
         
@@ -126,6 +130,9 @@ class SquatCounter(ExerciseCounter):
         The counter maintains multiple variables to track the current state and metrics.
         """
         self.config = config or SquatConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # ===== FSM STATE TRACKING =====
         self.state = SquatState.IDLE      # Current FSM state
@@ -310,7 +317,7 @@ class SquatCounter(ExerciseCounter):
             # Buffer ensures this is intentional descent, not noise
             if angle < cfg.extension_threshold - cfg.buffer:
                 self.state = SquatState.DESCENDING
-                self._rep_start_time = self._rep_start_time or time.time()  # Mark rep start
+                self._rep_start_time = self._rep_start_time or self._clock()  # Mark rep start
                 self._min_angle_in_rep = angle  # Initialize minimum angle
                 self._max_angle_in_rep = max(self._max_angle_in_rep, angle)
         
@@ -350,7 +357,7 @@ class SquatCounter(ExerciseCounter):
             if angle >= cfg.extension_threshold:
                 self.count += 1  # *** INCREMENT REP COUNT ***
                 self.state = SquatState.UP
-                self._rep_end_time = time.time()  # Mark rep completion time
+                self._rep_end_time = self._clock()  # Mark rep completion time
                 self._store_rep_metrics()  # Save metrics for this rep
                 self._reset_rep_tracking()  # Prepare for next rep
             

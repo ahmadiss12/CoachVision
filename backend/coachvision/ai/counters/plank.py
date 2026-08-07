@@ -6,7 +6,7 @@ Monitors hold duration and detects form breaks.
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Callable
 import time
 import numpy as np
 
@@ -77,7 +77,11 @@ class PlankCounter(ExerciseCounter):
     and provides real-time feedback on form quality.
     """
     
-    def __init__(self, config: Optional[PlankConfig] = None):
+    def __init__(
+        self,
+        config: Optional[PlankConfig] = None,
+        clock: Callable[[], float] = time.time,
+    ):
         """
         Initialize plank counter.
         
@@ -85,6 +89,9 @@ class PlankCounter(ExerciseCounter):
             config: Configuration object (uses defaults if None)
         """
         self.config = config or PlankConfig()
+        # Injectable time source: real wall clock in production, a
+        # replay clock in the benchmark harness. See scripts/benchmark_counters.py.
+        self._clock = clock
         
         # FSM state
         self.state = PlankState.IDLE
@@ -264,7 +271,7 @@ class PlankCounter(ExerciseCounter):
         self._total_frames += 1
         self._form_warnings = []
         
-        current_time = time.time()
+        current_time = self._clock()
         
         # Reset if confidence is too low
         if confidence < self.config.min_confidence:
@@ -432,7 +439,7 @@ class PlankCounter(ExerciseCounter):
     
     def reset(self) -> None:
         """Reset counter to initial state."""
-        current_time = time.time()
+        current_time = self._clock()
         
         # End any ongoing hold session
         if self.state == PlankState.HOLDING and self._hold_start_time is not None:
@@ -472,7 +479,7 @@ class PlankCounter(ExerciseCounter):
         if self.state != PlankState.HOLDING or self._hold_start_time is None:
             return 0.0
         
-        current_duration = time.time() - self._hold_start_time
+        current_duration = self._clock() - self._hold_start_time
         
         # Progress to min hold time (0 to 0.5)
         if current_duration < self.config.min_hold_time:
@@ -511,7 +518,7 @@ class PlankCounter(ExerciseCounter):
         if self.state == PlankState.HOLDING:
             # Provide timing feedback
             if self._hold_start_time:
-                duration = time.time() - self._hold_start_time
+                duration = self._clock() - self._hold_start_time
                 
                 if duration < self.config.min_hold_time:
                     remaining = self.config.min_hold_time - duration
@@ -548,7 +555,7 @@ class PlankCounter(ExerciseCounter):
             Current hold duration in seconds (0 if not holding)
         """
         if self.state == PlankState.HOLDING and self._hold_start_time:
-            return time.time() - self._hold_start_time
+            return self._clock() - self._hold_start_time
         return 0.0
     
     def get_total_hold_time(self) -> float:
