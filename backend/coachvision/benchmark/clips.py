@@ -56,12 +56,16 @@ class ClipMeta:
     camera_angle: str = "unknown"
     source: str = "recorded"
     notes: str = ""
+    needs_label: bool = False
+    """Set by the recorder. A human clears it when they fill in the ground truth."""
 
     @property
     def is_hold(self) -> bool:
         return self.true_hold_sec is not None
 
     def __post_init__(self) -> None:
+        if self.needs_label:
+            return
         if self.true_reps is None and self.true_hold_sec is None:
             raise ValueError(
                 f"{self.exercise}: clip metadata must set either true_reps or true_hold_sec"
@@ -127,8 +131,18 @@ def load_clip(jsonl_path: Path) -> Clip:
     return Clip(clip_id=jsonl_path.stem, meta=meta, frames=frames)
 
 
-def iter_clips(fixtures_dir: Path, exercise: str | None = None) -> Iterator[Clip]:
-    """Yield every labelled clip under ``fixtures_dir``, sorted for stable reports."""
+def iter_clips(
+    fixtures_dir: Path,
+    exercise: str | None = None,
+    unlabelled: list[str] | None = None,
+) -> Iterator[Clip]:
+    """Yield every labelled clip under ``fixtures_dir``, sorted for stable reports.
+
+    Freshly recorded clips have no ground truth yet, so they are skipped rather
+    than scored -- benchmarking a clip against an empty label would silently
+    invent an accuracy number. Pass ``unlabelled`` to collect their ids so the
+    caller can tell the user what still needs labelling.
+    """
     if not fixtures_dir.exists():
         raise FileNotFoundError(
             f"No fixtures at {fixtures_dir}. Generate the demo set with:\n"
@@ -137,7 +151,12 @@ def iter_clips(fixtures_dir: Path, exercise: str | None = None) -> Iterator[Clip
 
     pattern = f"{exercise}/*.jsonl" if exercise else "*/*.jsonl"
     for path in sorted(fixtures_dir.glob(pattern)):
-        yield load_clip(path)
+        clip = load_clip(path)
+        if clip.meta.needs_label:
+            if unlabelled is not None:
+                unlabelled.append(clip.clip_id)
+            continue
+        yield clip
 
 
 def write_clip(fixtures_dir: Path, clip_id: str, meta: ClipMeta, frames: list[Frame]) -> Path:

@@ -20,6 +20,22 @@ class Settings(BaseSettings):
     # when BOTH values are explicitly provided via environment variables.
     admin_seed_email: str = "admin@coachvision.test"
     admin_seed_password: str = "Admin1234"
+    # Benchmark clip recording. Saves the pose landmarks of live workouts to
+    # disk to build the counter accuracy dataset (docs/COUNTER_BENCHMARK.md).
+    # This records body movement data from whoever is using the app, so it is
+    # off by default and refused outside development -- see the validator below.
+    clip_recording_enabled: bool = False
+    clip_recording_dir: str = "fixtures"
+
+    @model_validator(mode="after")
+    def refuse_clip_recording_outside_development(self) -> "Settings":
+        if self.clip_recording_enabled and self.environment != "development":
+            raise ValueError(
+                "CLIP_RECORDING_ENABLED cannot be set when ENVIRONMENT is "
+                f"{self.environment!r}. Clip recording saves users' pose data to "
+                "disk and is intended for local dataset capture only."
+            )
+        return self
 
     @model_validator(mode="after")
     def require_secure_jwt_secret(self) -> "Settings":

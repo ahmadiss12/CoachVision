@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +15,8 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy import select
 
 from coachvision.ai.counters.dispatcher import CONFIG_PRESETS, ExerciseType
+from coachvision.benchmark.recorder import ClipRecorder
+from coachvision.core.config import settings
 from coachvision.core.security import decode_token
 from coachvision.db.models import Session as WorkoutSession, TrainerClient, User
 from coachvision.db.session import get_db
@@ -31,10 +35,60 @@ from coachvision.services.ws_persistence import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _j(payload: dict[str, Any]) -> dict[str, Any]:
     return {"schemaVersion": SCHEMA_VERSION, **payload}
+
+
+def _new_clip_recorder(session_id: str, exercise_id: str, difficulty: str) -> ClipRecorder | None:
+    """A recorder when dataset capture is switched on, otherwise nothing.
+
+    Settings refuses to enable this outside development, so in production this
+    is a single boolean check per workout.
+    """
+    if not settings.clip_recording_enabled:
+        return None
+    return ClipRecorder(
+        session_id=session_id,
+        exercise=exercise_id,
+        difficulty=difficulty,
+        fixtures_dir=Path(settings.clip_recording_dir),
+    )
+
+
+async def _finish_clip_recording(recorder: ClipRecorder | None) -> None:
+    """Flush a recorder off the event loop; never let it break the session.
+
+    Only safe on the graceful `end` path. On disconnect the handler task is
+    being cancelled and awaiting anything re-raises CancelledError, so use
+    :func:`_flush_clip_recording_now` there instead.
+    """
+    if recorder is None:
+        return
+    try:
+        await asyncio.to_thread(recorder.finish)
+    except Exception:  # noqa: BLE001 - a failed recording is not a failed workout
+        logger.exception("Clip recording flush failed")
+
+
+def _flush_clip_recording_now(recorder: ClipRecorder | None) -> None:
+    """Write the clip synchronously, for the disconnect path.
+
+    When the client drops, Starlette cancels this handler; the first `await` in
+    the teardown then raises CancelledError and the flush is skipped, losing the
+    session's frames at random depending on whether a worker thread happened to
+    win the race. A blocking write cannot be interrupted that way. It costs a
+    single file write on a socket that is already gone, and clip recording only
+    runs in development.
+    """
+    if recorder is None:
+        return
+    try:
+        recorder.finish()
+    except Exception:  # noqa: BLE001 - a failed recording is not a failed workout
+        logger.exception("Clip recording flush failed")
 
 
 async def _send_error(
@@ -114,6 +168,7 @@ async def websocket_live(
 
     session_state: LiveSessionState | None = None
     db_workout: WorkoutSession | None = None
+    clip_recorder: ClipRecorder | None = None
 
     try:
         try:
@@ -242,6 +297,7 @@ async def websocket_live(
                     )
                     continue
                 live_registry.register_session(str(workout.id), str(user_uuid), exercise_id)
+                clip_recorder = _new_clip_recorder(str(workout.id), exercise_id, difficulty)
                 await websocket.send_json(_j({"type": "started", "sessionId": str(workout.id)}))
                 continue
 
@@ -270,6 +326,10 @@ async def websocket_live(
                     client_inference_ms = None
 
                 landmarks = msg.get("landmarks")
+                if clip_recorder is not None:
+                    # Buffered in memory, written once at the end -- a disk
+                    # write per frame would add latency to the live loop.
+                    clip_recorder.record(landmarks, timestamp_ms)
                 # Offloaded like the JPEG path: the counters and the XGBoost
                 # form model are synchronous CPU work, and running them inline
                 # stalls the event loop for every other live session. Messages
@@ -361,6 +421,8 @@ async def websocket_live(
                 await websocket.send_json(ended_message)
                 await live_registry.broadcast(session_state.session_id, ended_message)
                 live_registry.unregister_session(session_state.session_id)
+                await _finish_clip_recording(clip_recorder)
+                clip_recorder = None
                 session_state = None
                 db_workout = None
                 continue
@@ -382,6 +444,11 @@ async def websocket_live(
                 _j({"type": "ended", "sessionId": session_state.session_id, "summary": None}),
             )
             live_registry.unregister_session(session_state.session_id)
+        # An abandoned workout still recorded real reps, and a clip is scored
+        # against what a human labels rather than against a completed session,
+        # so the frames are worth keeping. Written synchronously: this runs
+        # while the task is being cancelled, where an await would be skipped.
+        _flush_clip_recording_now(clip_recorder)
         abort_active_workout(db, db_workout)
 
 

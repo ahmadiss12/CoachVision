@@ -94,7 +94,57 @@ skeleton performs a textbook rep every time — no occlusion, no camera roll, no
 half-reps, no bouncing at the bottom. Scoring 100% on them says the replay path
 works, nothing more.
 
-For real numbers, target **15–25 clips per exercise** and vary deliberately:
+### Turning the recorder on
+
+Recording saves the pose landmarks of live workouts straight into the clip
+format. In `backend/.env`:
+
+```ini
+ENVIRONMENT=development
+CLIP_RECORDING_ENABLED=true
+CLIP_RECORDING_DIR=fixtures
+```
+
+Then work out in the app as normal. Every live session writes
+`fixtures/<exercise>/rec_<exercise>_<session>.jsonl` plus a metadata file.
+
+This records body movement data from whoever is using the app, so it is treated
+as a data-collection feature: off by default, and the backend **refuses to
+start** with it enabled unless `ENVIRONMENT=development`. Turning it on is a
+decision, never a default. Landmarks are coordinates, not video, but they are
+still a recording of a person.
+
+Frames are buffered in memory and written once when the session ends, so the
+live loop does no disk I/O. Sessions abandoned without an `end` message are
+still saved — those reps happened.
+
+### Labelling what you recorded
+
+A recorded clip lands with `needs_label: true` and no ground truth:
+
+```json
+{
+  "exercise": "squat",
+  "level": "intermediate",
+  "needs_label": true,
+  "notes": "Recorded live. Set true_reps (or true_hold_sec) to what actually
+            happened in this clip, ..."
+}
+```
+
+Fill in `true_reps` (or `true_hold_sec`), set `camera_angle`, and remove
+`needs_label`. Until then the benchmark skips the clip and lists it as awaiting
+a label rather than scoring it — an unlabelled clip scored against an empty
+label would invent an accuracy number.
+
+The recorder deliberately does **not** write the app's own rep count into the
+metadata. That would be labelling the data with the very thing the benchmark
+measures: every clip would score 100% and the number would mean nothing. Count
+from the recording itself.
+
+### What to capture
+
+Target **15–25 clips per exercise** and vary deliberately:
 
 - camera angle: front, side, 45°
 - distance: close and far
@@ -108,6 +158,11 @@ otherwise the label comes from the thing being measured.
 
 If you cannot reach ~15 clips for all twelve exercises, cover four exercises
 properly rather than twelve badly. Five clips is noise, not a measurement.
+
+Recorded clips under `backend/fixtures/` are **not** git-ignored — the
+labelling is the work, and the files hold coordinates rather than image data.
+Only the generated `synthetic_*` clips are ignored, since one command
+reproduces them.
 
 ## Regression gate
 

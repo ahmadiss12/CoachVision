@@ -35,6 +35,10 @@ L_FOOT, R_FOOT = 31, 32
 SIDE_OFFSET = 0.02
 """Horizontal gap between the left and right side of the body in a side view."""
 
+PRESENCE = 0.95
+"""Per-landmark presence. The pipeline derives a frame's scalar confidence as
+the mean presence of the tracked joints, so the two must agree in a clip."""
+
 
 def _blank_skeleton() -> list[list[float]]:
     """33 landmarks, all present but parked off-frame until we place them."""
@@ -100,7 +104,7 @@ def _squat_frame(knee_angle_deg: float, rng: random.Random, noise: float) -> lis
         lm[index] = [
             point[0] + dx + rng.gauss(0.0, noise),
             point[1] + rng.gauss(0.0, noise),
-            1.0,
+            PRESENCE,
         ]
 
     for dx, (sh, hp, kn, an, ft) in (
@@ -148,7 +152,7 @@ def squat_clip(
             Frame(
                 t=len(frames) / fps,
                 landmarks=_squat_frame(angle, rng, noise),
-                confidence=0.95,
+                confidence=PRESENCE,
             )
         )
 
@@ -188,7 +192,7 @@ def _plank_frame(
         lm[index] = [
             point[0] + dx + rng.gauss(0.0, noise),
             point[1] + rng.gauss(0.0, noise),
-            1.0,
+            PRESENCE,
         ]
 
     for dx, (sh, hp, kn, an, ft, el, wr) in (
@@ -239,7 +243,7 @@ def plank_clip(
                 Frame(
                     t=len(frames) / fps,
                     landmarks=_plank_frame(angle, rng, noise),
-                    confidence=0.95,
+                    confidence=PRESENCE,
                 )
             )
 

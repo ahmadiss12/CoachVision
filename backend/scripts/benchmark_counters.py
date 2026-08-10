@@ -66,9 +66,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    clips = list(iter_clips(args.fixtures, args.exercise))
+    unlabelled: list[str] = []
+    clips = list(iter_clips(args.fixtures, args.exercise, unlabelled=unlabelled))
+
+    if unlabelled:
+        print(f"Skipped {len(unlabelled)} clip(s) awaiting a ground truth label:")
+        for clip_id in unlabelled:
+            print(f"  {clip_id}")
+        print("Fill in true_reps (or true_hold_sec) and clear needs_label.\n")
+
     if not clips:
-        print(f"No clips found in {args.fixtures}", file=sys.stderr)
+        print(f"No labelled clips found in {args.fixtures}", file=sys.stderr)
         return 1
 
     scores = [score_clip(clip, replay_clip(clip, level=args.level)) for clip in clips]
