@@ -16,6 +16,30 @@ python scripts/make_synthetic_clips.py     # generated demo clips, no camera nee
 python scripts/benchmark_counters.py --per-clip
 ```
 
+## The full loop
+
+```text
+1. record     enable CLIP_RECORDING_ENABLED, work out in the app
+2. label      python scripts/label_clips.py
+3. measure    python scripts/benchmark_counters.py --per-clip
+4. baseline   python scripts/benchmark_counters.py --out BASELINE.md
+5. tune       change thresholds, re-run step 3, compare
+```
+
+Step 3 is where a disagreement shows up. `expected` is what you said you did,
+`counted` is what the app's counter produced:
+
+```text
+clip                                expected  counted   error
+-------------------------------------------------------------
+rec_squat_7207a420                         7        8      +1  <-- MISS
+rec_squat_a91c04f2                        12       12      +0
+rec_pushup_5b30e1aa                       10        8      -2  <-- MISS
+```
+
+A positive error means the counter over-counted (it saw reps you did not do);
+negative means it under-counted (it missed reps you did).
+
 ## How it works
 
 `ExerciseCounter.update()` takes `{joint: (x, y)}` plus a confidence float and
@@ -120,27 +144,50 @@ still saved — those reps happened.
 
 ### Labelling what you recorded
 
-A recorded clip lands with `needs_label: true` and no ground truth:
+A recorded clip lands with `needs_label: true` and no ground truth. Until it is
+labelled the benchmark skips it and lists it as pending rather than scoring it —
+an unlabelled clip scored against an empty label would invent an accuracy
+number.
 
-```json
-{
-  "exercise": "squat",
-  "level": "intermediate",
-  "needs_label": true,
-  "notes": "Recorded live. Set true_reps (or true_hold_sec) to what actually
-            happened in this clip, ..."
-}
+```powershell
+python scripts/label_clips.py --status   # how many clips, how many labelled
+python scripts/label_clips.py            # walk through the unlabelled ones
 ```
 
-Fill in `true_reps` (or `true_hold_sec`), set `camera_angle`, and remove
-`needs_label`. Until then the benchmark skips the clip and lists it as awaiting
-a label rather than scoring it — an unlabelled clip scored against an empty
-label would invent an accuracy number.
+The tool plots the joint angle over time and asks what actually happened. One
+dip is one repetition:
 
-The recorder deliberately does **not** write the app's own rep count into the
-metadata. That would be labelling the data with the very thing the benchmark
-measures: every clip would score 100% and the number would mean nothing. Count
-from the recording itself.
+```text
+Clip 3 of 12: rec_squat_7207a420
+  Exercise : squat (reps)
+  Recorded : 20.7s, 312 frames, 15.0 fps
+
+  Joint angle over time (one dip = one repetition):
+    172 |####                                      ##      ##              ##
+        |    #     ###     # #     ###     ##      ##      ##     ###     #
+        |     #   ##  #   #  ##   #  #    #  #    #  #    #  #   ##  #   #
+        |      # ##    # #     # #    ## #    ## #    # ##    # ##    # #
+        |      ###     ###     ###     ###     ###    ###     ###     ###
+     86 +--------------------------------------------------------------------
+
+  How many reps did you actually do? (s=skip, q=quit)
+  > 8
+  Camera angle? [side/front/45/other] (default side): side
+  Notes (optional):
+  Saved: 8 reps, side view.
+```
+
+Hold exercises get the same plot, where each flat plateau is one hold, and are
+asked for seconds instead of reps.
+
+The tool never displays what the counter said, and the recorder never writes the
+app's own count into the metadata. Both would mean labelling the data with the
+very thing the benchmark measures: every clip would score 100% and the number
+would be worthless. The plot is raw joint geometry, not the counter's decision
+about it.
+
+`--relabel` revisits clips that already have a label. Editing the `.meta.json`
+by hand does the same job if you prefer.
 
 ### What to capture
 

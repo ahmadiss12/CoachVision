@@ -68,6 +68,12 @@ class ReplayResult:
     """Frames dropped before reaching the counter (missing or low-presence joints)."""
     count_frames: list[int] = field(default_factory=list)
     """Frame index at which each rep was counted -- for count-latency analysis."""
+    angles: list[float] = field(default_factory=list, repr=False)
+    """The counter's primary joint angle per processed frame.
+
+    Raw geometry, not a decision: the labelling tool plots this so a human can
+    count the reps in a recording themselves.
+    """
 
 
 def _joints_for_frame(
@@ -126,8 +132,9 @@ def replay_clip(clip: Clip, level: str | None = None) -> ReplayResult:
             result.frames_skipped += 1
             continue
 
-        count, _state, _angle = dispatcher.update(joints, frame.confidence)
+        count, _state, angle = dispatcher.update(joints, frame.confidence)
         result.frames_seen += 1
+        result.angles.append(float(angle))
 
         if count > previous_count:
             result.count_frames.extend([index] * (count - previous_count))

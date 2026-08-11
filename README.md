@@ -80,7 +80,8 @@ Counter accuracy (see [docs/COUNTER_BENCHMARK.md](docs/COUNTER_BENCHMARK.md)):
 
 ```powershell
 cd backend
-python scripts/make_synthetic_clips.py
+python scripts/make_synthetic_clips.py     # demo clips, no camera needed
+python scripts/label_clips.py              # label clips recorded from real workouts
 python scripts/benchmark_counters.py --per-clip
 ```
 
