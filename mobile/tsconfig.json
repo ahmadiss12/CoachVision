@@ -1,0 +1,30 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    // No baseUrl: it is deprecated in TS 6, and paths resolve relative to this
+    // file without it.
+    "paths": {
+      "@/*": ["./*"]
+    },
+    // The app is still mostly JavaScript. allowJs lets .js and .ts sit side by
+    // side so files can be converted one at a time instead of in one rewrite;
+    // checkJs stays off so untouched .js files are not reported as errors.
+    "allowJs": true,
+    "checkJs": false,
+    "strict": true,
+    "noEmit": true,
+    // Reading a field the server never sends is the bug class this migration
+    // exists to stop, so optional properties must read as possibly undefined.
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".expo"]
+}

@@ -63,6 +63,7 @@ EXPO_PUBLIC_WS_ORIGIN=ws://192.168.0.103:8001
 - [Project structure](docs/PROJECT_STRUCTURE.md)
 - [Exercises and fatigue logic](docs/EXERCISES_AND_FATIGUE.md)
 - [Counter accuracy benchmark](docs/COUNTER_BENCHMARK.md)
+- [Typed client contract](docs/TYPED_CONTRACT.md)
 - [Backend details](backend/README.md)
 - [Mobile details](mobile/README.md)
 
@@ -90,4 +91,5 @@ Mobile:
 ```powershell
 cd mobile
 npm run lint
+npm run typecheck
 ```

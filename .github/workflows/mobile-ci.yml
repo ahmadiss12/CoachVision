@@ -1,0 +1,40 @@
+name: Mobile CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-ci.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-ci.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # Checks the WebSocket contract in src/services/ws/messages.ts against
+      # every call site, and runs the @ts-expect-error tests in
+      # messages.type-test.ts that pin the shapes the client must keep
+      # rejecting. See docs/TYPED_CONTRACT.md.
+      - name: Typecheck
+        run: npm run typecheck

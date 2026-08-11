@@ -1,4 +1,35 @@
 import { buildWsUrl } from '../api/config';
+import type {
+  ClientMessage,
+  EndedMessage,
+  ErrorMessage,
+  MetricsMessage,
+  NoPoseMessage,
+  ServerMessage,
+  StartedMessage,
+} from './messages';
+
+export type LiveSessionHandlers = {
+  onStarted?: (payload: StartedMessage) => void;
+  onMetrics?: (payload: MetricsMessage) => void;
+  onNoPose?: (payload: NoPoseMessage) => void;
+  onEnded?: (payload: EndedMessage) => void;
+  onError?: (message: string, code?: ErrorMessage['code']) => void;
+};
+
+export type LiveSessionOptions = LiveSessionHandlers & {
+  accessToken: string;
+};
+
+export type LiveSessionSocket = {
+  connect: () => Promise<void>;
+  /** Returns false when the socket is closed or the send buffer is backed up. */
+  send: (payload: ClientMessage) => boolean;
+  close: () => void;
+};
+
+/** Above this, the network is not keeping up and new frames are dropped. */
+const MAX_BUFFERED_BYTES = 1_000_000;
 
 export function createLiveSessionSocket({
   accessToken,
@@ -7,12 +38,12 @@ export function createLiveSessionSocket({
   onEnded,
   onNoPose,
   onError,
-}) {
-  let socket = null;
+}: LiveSessionOptions): LiveSessionSocket {
+  let socket: WebSocket | null = null;
   let opened = false;
 
   const connect = () =>
-    new Promise((resolve, reject) => {
+    new Promise<void>((resolve, reject) => {
       try {
         const url = buildWsUrl('/ws/live', { token: accessToken });
         socket = new WebSocket(url);
@@ -34,9 +65,12 @@ export function createLiveSessionSocket({
         onError?.('Live workout websocket error.');
       };
 
-      socket.onmessage = (event) => {
+      socket.onmessage = (event: MessageEvent) => {
         try {
-          const payload = JSON.parse(event.data);
+          // The server is the only writer on this socket, but it is still
+          // untrusted input as far as the type system is concerned: the cast
+          // asserts the contract in messages.ts, it does not verify it.
+          const payload = JSON.parse(String(event.data)) as ServerMessage;
           switch (payload.type) {
             case 'started':
               onStarted?.(payload);
@@ -68,11 +102,11 @@ export function createLiveSessionSocket({
       };
     });
 
-  const send = (payload) => {
+  const send = (payload: ClientMessage): boolean => {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       return false;
     }
-    if (socket.bufferedAmount > 1_000_000) {
+    if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       return false;
     }
     socket.send(JSON.stringify(payload));

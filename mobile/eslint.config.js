@@ -9,7 +9,7 @@ module.exports = defineConfig([
     settings: {
       'import/resolver': {
         typescript: {
-          project: './jsconfig.json',
+          project: './tsconfig.json',
         },
       },
     },
