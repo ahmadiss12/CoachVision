@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "mobile/**"
+      # The client's API types are generated from this, so a schema change has
+      # to re-run these checks even when nothing under mobile/ was touched.
+      - "backend/openapi.json"
       - ".github/workflows/mobile-ci.yml"
   pull_request:
     paths:
       - "mobile/**"
+      - "backend/openapi.json"
       - ".github/workflows/mobile-ci.yml"
 
 jobs:
@@ -31,6 +35,15 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Catches a backend schema change that was not reflected in the client's
+      # generated types. Paired with the backend's `export_openapi.py --check`,
+      # which keeps openapi.json itself in step with the FastAPI app.
+      - name: API types match the OpenAPI schema
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/services/api/schema.d.ts \
+            || { echo "::error::schema.d.ts is stale. Run: cd mobile && npm run generate:api"; exit 1; }
 
       # Checks the WebSocket contract in src/services/ws/messages.ts against
       # every call site, and runs the @ts-expect-error tests in

@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate:api": "openapi-typescript ../backend/openapi.json -o src/services/api/schema.d.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -52,7 +53,8 @@
     "@types/react": "^19.2.18",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "^6.0.3"
+    "openapi-typescript": "^7.13.0",
+    "typescript": "~5.9.0"
   },
   "private": true
 }

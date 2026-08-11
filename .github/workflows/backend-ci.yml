@@ -34,6 +34,12 @@ jobs:
       - name: Run tests
         run: pytest coachvision/tests -v
 
+      # The mobile client's API types are generated from the committed
+      # openapi.json, so it has to stay in step with the app. See
+      # docs/TYPED_CONTRACT.md.
+      - name: OpenAPI schema is up to date
+        run: python scripts/export_openapi.py --check
+
       # Regression gate for the exercise counters. The clips are regenerated
       # rather than committed (seeded, so the result is deterministic), and the
       # run fails if any exercise scores below backend/BASELINE.md. See

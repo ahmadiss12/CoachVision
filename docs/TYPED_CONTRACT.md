@@ -20,7 +20,9 @@ compile error now, not a debugging session.
 | Mobile: TypeScript configured | Done |
 | Mobile: WebSocket message types | Done |
 | Mobile: live WS client migrated | Done |
-| Mobile: REST client generated from OpenAPI | Not started |
+| Mobile: REST types generated from OpenAPI | Done |
+| Mobile: `client.ts`, `sessions.ts` migrated | Done |
+| Mobile: remaining 9 API service files | Not started |
 | Mobile: screens migrated | Not started |
 | Web dashboard | Not started |
 
@@ -32,10 +34,66 @@ one rewrite.
 
 ```powershell
 cd mobile
-npm run typecheck
+npm run typecheck      # check every call site
+npm run generate:api   # after a backend schema change
 ```
 
-CI runs this on every change under `mobile/` (`.github/workflows/mobile-ci.yml`).
+```powershell
+cd backend
+python scripts/export_openapi.py    # after changing any Pydantic model
+```
+
+## The REST types
+
+`src/services/api/schema.d.ts` is generated, never edited. It comes from
+`backend/openapi.json`, which is exported straight out of the FastAPI app — so
+the client's types are the server's own Pydantic models rather than a hand-kept
+copy that drifts.
+
+The spec is exported offline rather than fetched from a running server, so CI
+can regenerate and diff without booting the app, and a schema change shows up as
+a reviewable diff in the pull request that causes it.
+
+### Two gates, one guarantee
+
+Neither check is useful alone; together they mean the client's types match the
+running server.
+
+| Check | Where | Catches |
+| --- | --- | --- |
+| `export_openapi.py --check` | backend CI | `openapi.json` drifting from the Pydantic models |
+| regenerate + `git diff --exit-code` | mobile CI | `schema.d.ts` drifting from `openapi.json` |
+| `npm run typecheck` | mobile CI | call sites that no longer match the schema |
+
+Renaming a field on the server now fails the pull request:
+
+```text
+1. backend CI : openapi.json is out of date with the app.
+2. after regenerating:
+   sessions.ts(53,25): Property 'exerciseId' does not exist ... Did you mean 'exercise'?
+```
+
+### The API is not consistently cased
+
+Generating the types surfaced this: of 263 schema properties, **245 are
+camelCase and 18 are snake_case**. The snake_case ones are concentrated in auth
+and user profile payloads:
+
+```text
+TokenPair.access_token, TokenPair.refresh_token, TokenPair.token_type
+RegisterRequest.display_name, RefreshRequest.refresh_token
+UserMeResponse.*, UpdateUserMeRequest.*
+ExerciseResponse.default_difficulty
+```
+
+That inconsistency is why `sessions.js` used to read
+`payload.exerciseId ?? payload.exercise_id` on every field — nobody was certain
+which the server sent, so the client hedged everywhere. `SessionResponse` has no
+snake_case properties at all, so those fallbacks could never fire. They are gone
+from `sessions.ts`.
+
+Worth normalising the API on one convention eventually. The generated types make
+that a mechanical change now, since every affected call site fails to compile.
 
 ## The WebSocket types
 
@@ -111,21 +169,34 @@ When a WebSocket message changes on the server:
 Keep `@ts-expect-error` cases on a single line where the error lands on an inner
 property — the directive only covers the line immediately after it.
 
+## Converting a file
+
+The pattern, using `sessions.ts` as the reference:
+
+1. Rename `.js` to `.ts`. Imports are extension-less, so callers do not change.
+2. Name the response type from the generated schema:
+   `type SessionResponse = Schemas['SessionResponse']`.
+3. Pass it to the request: `apiRequest<SessionResponse>('/sessions')`.
+4. Run `npm run typecheck` and fix what it flags.
+
+Step 4 is where the value is. Converting `client.js` surfaced a real bug: it
+passed `body: undefined` to `fetch` on every GET. Setting a key to `undefined`
+is not the same as omitting it, and `RequestInit.body` does not accept it —
+the request init is now built conditionally.
+
 ## What is left
 
-**REST client from OpenAPI.** The spec already exists, so this is mostly
-configuration:
-
-```powershell
-npx openapi-typescript http://127.0.0.1:8001/v1/openapi.json -o src/services/api/schema.d.ts
-```
-
-Then `src/services/api/*.js` becomes typed against the real backend, and a CI
-step that regenerates and diffs would catch a backend change that breaks the app
-in the pull request rather than in production.
+**The other nine API service files.** Same pattern as `sessions.ts`, one at a
+time. `auth.js` and `users.js` are the interesting ones: they sit on the
+snake_case part of the API, so the types will make that explicit.
 
 **Screens.** Convert as they are touched, service layer first — that is where
 wire data enters and where a wrong assumption does the most damage.
 
 **Web dashboard.** Same approach; it shares the REST surface and the live
-observer socket.
+observer socket. It can consume the same generated `schema.d.ts`.
+
+**Runtime validation.** Types are a compile-time assertion, not a runtime check:
+`JSON.parse(...) as ServerMessage` trusts the server. Adding a validator (Zod or
+similar) at the socket boundary would close that gap, at the cost of validating
+every frame at ~15 Hz. Worth revisiting if a malformed frame ever ships.
