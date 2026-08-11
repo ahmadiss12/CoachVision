@@ -326,8 +326,10 @@ class PlankCounter(ExerciseCounter):
                 self._hold_start_time = current_time
             else:
                 self._current_hold_duration = current_time - self._hold_start_time
-                self._total_hold_time += (1.0 / 30)  # Approximate per frame
-                
+                # Total hold time is accumulated from the clock when a hold
+                # ends (see _end_hold_session), not guessed per frame. The
+                # in-progress hold is added by get_total_hold_time().
+
                 # Update best hold
                 if self._current_hold_duration > self._best_hold_duration:
                     self._best_hold_duration = self._current_hold_duration
@@ -404,7 +406,11 @@ class PlankCounter(ExerciseCounter):
         """
         if self._hold_start_time is not None:
             duration = end_time - self._hold_start_time
-            
+
+            # Every second spent in good form counts toward the total, even if
+            # the hold was too short to register as a completed session below.
+            self._total_hold_time += duration
+
             # Only count holds that meet minimum duration
             if duration >= self.config.min_hold_time:
                 self.hold_count += 1
@@ -561,11 +567,14 @@ class PlankCounter(ExerciseCounter):
     def get_total_hold_time(self) -> float:
         """
         Get total accumulated hold time for session.
-        
+
+        Includes the hold currently in progress, so the live counter keeps
+        rising during a hold and a session ended mid-hold still reports it.
+
         Returns:
             Total hold time in seconds
         """
-        return self._total_hold_time
+        return self._total_hold_time + self.get_current_hold_duration()
     
     def get_hold_sessions(self) -> List[Dict[str, Any]]:
         """
@@ -587,7 +596,7 @@ class PlankCounter(ExerciseCounter):
             return {
                 'exercise': 'plank',
                 'total_holds': 0,
-                'total_hold_time': round(self._total_hold_time, 1),
+                'total_hold_time': round(self.get_total_hold_time(), 1),
                 'best_hold': round(self._best_hold_duration, 1),
                 'avg_hold_duration': 0,
                 'avg_body_angle': 0,
@@ -617,7 +626,7 @@ class PlankCounter(ExerciseCounter):
         return {
             'exercise': 'plank',
             'total_holds': len(self._hold_sessions),
-            'total_hold_time': round(self._total_hold_time, 1),
+            'total_hold_time': round(self.get_total_hold_time(), 1),
             'best_hold': round(self._best_hold_duration, 1),
             'avg_hold_duration': round(avg_duration, 1),
             'avg_body_angle': round(avg_angle, 1),
@@ -634,7 +643,7 @@ class PlankCounter(ExerciseCounter):
         base_dict.update({
             'last_body_angle': self._last_body_angle,
             'current_hold_duration': self.get_current_hold_duration(),
-            'total_hold_time': self._total_hold_time,
+            'total_hold_time': self.get_total_hold_time(),
             'best_hold_duration': self._best_hold_duration,
             'max_hip_deviation': self._max_hip_deviation,
             'form_warnings': self._form_warnings,

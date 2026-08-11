@@ -79,8 +79,8 @@ def main() -> int:
             2,
             9,
             "Three 20s holds separated by form breaks. Total holding time is 60s. "
-            "Currently FAILS: plank.py accumulates hold time as a hard-coded "
-            "1/30s per frame, so at the app's ~15Hz live rate it reports half. "
+            "Guards the hold-time regression: plank.py used to accumulate a "
+            "hard-coded 1/30s per frame, reporting half at the app's ~15Hz rate. "
             "See docs/COUNTER_BENCHMARK.md.",
         ),
     ):

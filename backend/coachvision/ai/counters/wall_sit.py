@@ -303,8 +303,10 @@ class WallSitCounter(ExerciseCounter):
                 self._hold_start_time = current_time
             else:
                 self._current_hold_duration = current_time - self._hold_start_time
-                self._total_hold_time += (1.0 / 30)  # Approximate per frame
-                
+                # Total hold time is accumulated from the clock when a hold
+                # ends (see _end_hold_session), not guessed per frame. The
+                # in-progress hold is added by get_total_hold_time().
+
                 if self._current_hold_duration > self._best_hold_duration:
                     self._best_hold_duration = self._current_hold_duration
         
@@ -349,7 +351,11 @@ class WallSitCounter(ExerciseCounter):
         """End current hold session and record metrics."""
         if self._hold_start_time is not None:
             duration = end_time - self._hold_start_time
-            
+
+            # Every second spent in good form counts toward the total, even if
+            # the hold was too short to register as a completed session below.
+            self._total_hold_time += duration
+
             # Only count holds that meet minimum duration
             if duration >= self.config.min_hold_time:
                 self.hold_count += 1
@@ -481,8 +487,12 @@ class WallSitCounter(ExerciseCounter):
         return 0.0
     
     def get_total_hold_time(self) -> float:
-        """Get total accumulated hold time for session."""
-        return self._total_hold_time
+        """Get total accumulated hold time for session.
+
+        Includes the hold currently in progress, so the live counter keeps
+        rising during a hold and a session ended mid-hold still reports it.
+        """
+        return self._total_hold_time + self.get_current_hold_duration()
     
     def get_hold_sessions(self) -> List[Dict[str, Any]]:
         """Get data for all completed hold sessions."""
@@ -494,7 +504,7 @@ class WallSitCounter(ExerciseCounter):
             return {
                 'exercise': 'wall_sit',
                 'total_holds': 0,
-                'total_hold_time': round(self._total_hold_time, 1),
+                'total_hold_time': round(self.get_total_hold_time(), 1),
                 'best_hold': round(self._best_hold_duration, 1),
                 'avg_hold_duration': 0,
                 'avg_knee_angle': 0,
@@ -527,7 +537,7 @@ class WallSitCounter(ExerciseCounter):
         return {
             'exercise': 'wall_sit',
             'total_holds': len(self._hold_sessions),
-            'total_hold_time': round(self._total_hold_time, 1),
+            'total_hold_time': round(self.get_total_hold_time(), 1),
             'best_hold': round(self._best_hold_duration, 1),
             'avg_hold_duration': round(avg_duration, 1),
             'avg_knee_angle': round(avg_knee, 1),

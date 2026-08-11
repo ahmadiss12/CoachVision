@@ -226,9 +226,11 @@ defect can sit in the baseline while the gate still prevents new ones.
 
 ## Findings
 
-### Hold time is frame-counted at an assumed 30 fps
+### Hold time was frame-counted at an assumed 30 fps — fixed
 
-`plank.py:329` and `wall_sit.py:306` both accumulate hold time as a hard-coded
+**Found by the first benchmark run. Fixed; the fixture now guards it.**
+
+`plank.py` and `wall_sit.py` both accumulated hold time as a hard-coded
 `1.0 / 30` per frame rather than from elapsed time:
 
 ```python
@@ -236,24 +238,29 @@ self._total_hold_time += (1.0 / 30)  # Approximate per frame
 ```
 
 The live rate is roughly 15 Hz (see the One Euro tuning note in
-`realtime/pipeline.py`), so `total_hold_time` runs at about half speed.
+`realtime/pipeline.py`), so `total_hold_time` ran at about half speed. Above
+30 fps it ran fast instead — a 60 fps capture would have reported double.
 
-A single unbroken hold hides this, because `export_session_data()` takes the
-`max` of `total_hold_time` and the clock-derived `best_hold`. It surfaces as
-soon as the hold breaks — which is the normal case for a plank:
+A single unbroken hold hid this, because `export_session_data()` takes the
+`max` of `total_hold_time` and the clock-derived `best_hold`. It surfaced as
+soon as the hold broke — the normal case for a plank:
 
 ```text
 fixtures/plank/synthetic_plank_60sec_3holds  (three 20s holds at 15 fps)
-  total_hold_time (frame-counted) : 29.8s
-  best_hold       (clock-based)   : 19.8s
-  persisted total_seconds         : 30s     <-- should be 60s
+  before : 30s persisted   <-- half the real hold
+  after  : 60s persisted
 ```
 
-The user is credited with half the plank they actually did, and the wrong value
-reaches persisted session data via `ws_persistence`. The fix is to accumulate
-`current_time - last_frame_time` from the injected clock, which is now
-available. Left unfixed here because it changes user-visible history values and
-warrants its own change; the fixture documents it in the meantime.
+Users were credited with half the plank they actually did, and the wrong value
+reached persisted session data via `ws_persistence`.
+
+`_total_hold_time` now accumulates the real elapsed duration when a hold ends,
+and `get_total_hold_time()` adds the hold still in progress so the live counter
+keeps rising and a session ended mid-hold is not discarded. Because the clock is
+injectable, `test_hold_timing.py` pins the result at 10, 15, 30 and 60 fps.
+
+Sessions recorded before this fix keep their stored values. The original frame
+rate is not retained anywhere, so those numbers cannot be recomputed.
 
 ### `use_both_legs` uses only the left leg
 
