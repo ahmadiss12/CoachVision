@@ -21,10 +21,12 @@ compile error now, not a debugging session.
 | Mobile: WebSocket message types | Done |
 | Mobile: live WS client migrated | Done |
 | Mobile: REST types generated from OpenAPI | Done |
-| Mobile: `client.ts`, `sessions.ts` migrated | Done |
-| Mobile: remaining 9 API service files | Not started |
+| Mobile: all 11 API service files migrated | Done |
 | Mobile: screens migrated | Not started |
 | Web dashboard | Not started |
+
+Every module that touches the network is typed. `config.js` stays JavaScript —
+it reads environment variables and builds URLs, and never handles wire data.
 
 The app is still mostly JavaScript. `allowJs` is on and `checkJs` is off, so
 `.js` and `.ts` sit side by side and files convert one at a time instead of in
@@ -86,11 +88,24 @@ UserMeResponse.*, UpdateUserMeRequest.*
 ExerciseResponse.default_difficulty
 ```
 
-That inconsistency is why `sessions.js` used to read
+That inconsistency is why the client used to read
 `payload.exerciseId ?? payload.exercise_id` on every field — nobody was certain
-which the server sent, so the client hedged everywhere. `SessionResponse` has no
-snake_case properties at all, so those fallbacks could never fire. They are gone
-from `sessions.ts`.
+which the server sent, so it hedged everywhere. Checking each schema showed
+where the hedging was real and where it was dead code:
+
+| Module | Wire casing | Dead fallbacks removed |
+| --- | --- | --- |
+| `sessions.ts` | camelCase | ~14 |
+| `reports.ts` | camelCase | ~40 |
+| `fatigue.ts` | camelCase | ~8 |
+| `auth.ts` | **snake_case** | 3 (the camelCase side was dead) |
+| `exercises.ts` | **snake_case** (`default_difficulty`) | 1 |
+| `users.ts` | **snake_case** | — |
+
+So the hedging was backwards in places: `auth.ts` and `exercises.ts` were
+falling back to camelCase keys that never arrive, while `reports.ts` was
+guarding against snake_case that never arrives either. Every branch was dead in
+one direction or the other.
 
 Worth normalising the API on one convention eventually. The generated types make
 that a mechanical change now, since every affected call site fails to compile.
@@ -186,12 +201,16 @@ the request init is now built conditionally.
 
 ## What is left
 
-**The other nine API service files.** Same pattern as `sessions.ts`, one at a
-time. `auth.js` and `users.js` are the interesting ones: they sit on the
-snake_case part of the API, so the types will make that explicit.
+**Screens.** The service layer is typed, but types only protect files that opt
+in: a `.jsx` screen reading `session.avgFormScore.toFixed(1)` still crashes on
+`null` because TypeScript is not looking at it. `WorkoutLiveScreen.jsx` is the
+one worth converting deliberately — it consumes the most WebSocket data and it
+is where the original voice-cue crash happened. Everything else can convert as
+it is touched.
 
-**Screens.** Convert as they are touched, service layer first — that is where
-wire data enters and where a wrong assumption does the most damage.
+Do not convert the whole app in one pass. `allowJs` means `.js` and `.tsx`
+coexist indefinitely; a half-converted codebase is a normal state, not a broken
+one.
 
 **Web dashboard.** Same approach; it shares the REST surface and the live
 observer socket. It can consume the same generated `schema.d.ts`.
