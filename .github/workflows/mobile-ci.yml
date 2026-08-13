@@ -51,3 +51,6 @@ jobs:
       # rejecting. See docs/TYPED_CONTRACT.md.
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Test
+        run: npm test -- --ci

@@ -22,7 +22,8 @@ compile error now, not a debugging session.
 | Mobile: live WS client migrated | Done |
 | Mobile: REST types generated from OpenAPI | Done |
 | Mobile: all 11 API service files migrated | Done |
-| Mobile: screens migrated | Not started |
+| Mobile: `WorkoutLiveScreen` migrated | Done |
+| Mobile: remaining screens | Not started |
 | Web dashboard | Not started |
 
 Every module that touches the network is typed. `config.js` stays JavaScript —
@@ -37,6 +38,7 @@ one rewrite.
 ```powershell
 cd mobile
 npm run typecheck      # check every call site
+npm test               # unit tests
 npm run generate:api   # after a backend schema change
 ```
 
@@ -184,6 +186,61 @@ When a WebSocket message changes on the server:
 Keep `@ts-expect-error` cases on a single line where the error lands on an inner
 property — the directive only covers the line immediately after it.
 
+## Converting a screen: WorkoutLiveScreen
+
+The screen was 1,370 lines with two untyped boundaries in it — the WebSocket and
+the WebView bridge — and no tests. Renaming it alone would have bought little,
+since the interesting logic was tangled into the component. It was split first:
+
+| File | What it holds |
+| --- | --- |
+| `workout-live/pose-webview-html.ts` | The 400-line WebView page, moved verbatim |
+| `workout-live/presentation.ts` | Tone, colour and status-label rules |
+| `workout-live/webview-bridge.ts` | WebView message types and a validating parser |
+| `state/live-metrics.ts` | The wire → app-state mapping and the render throttle |
+| `WorkoutLiveScreen.tsx` | The component |
+
+Everything except the component is pure, so it is unit tested — 50 tests, the
+mobile app's first.
+
+### What the tests found
+
+**`Number(null)` is `0`.** This bit the same code twice:
+
+```js
+formConfidence: Number.isFinite(Number(payload.formConfidence)) ? Number(...) : null
+```
+
+`formConfidence: null` means the XGBoost model did not run. `Number(null)` is
+`0` and `Number.isFinite(0)` is true, so "no model" was recorded as "0%
+confidence". Latent — nothing renders it yet — but `app-state.jsx` defaults it
+to `null`, so the code plainly means the two to differ.
+
+The same trap then appeared in the *replacement*: a `finiteOr` helper turned a
+missing `angle` into 0 degrees instead of falling back to 180. That one was
+caught by the parity test, not by review.
+
+**NaN reached the UI.** `Number(payload.angle ?? 180)` passes NaN straight
+through, because `??` only catches null and undefined. A NaN angle rendered as
+"NaN deg". The replacement rejects non-finite values.
+
+### The parity test
+
+`state/__tests__/live-metrics-parity.test.ts` keeps a copy of the original
+inline mapping and asserts the new one produces identical output across
+representative frames. Differences have to be deliberate and named: the file
+documents two, and pins both directions of each.
+
+That is what makes a conversion like this checkable rather than hopeful.
+
+### One behaviour change
+
+A `pose` message whose `landmarks` is missing or not an array is now rejected at
+the boundary, so it no longer marks the WebView as ready. Previously it set
+`ready` and then dropped the frame further down. Rejecting it is the safer
+reading: a page posting malformed poses is not working, and the frame must not
+reach the server.
+
 ## Converting a file
 
 The pattern, using `sessions.ts` as the reference:
@@ -201,16 +258,20 @@ the request init is now built conditionally.
 
 ## What is left
 
-**Screens.** The service layer is typed, but types only protect files that opt
-in: a `.jsx` screen reading `session.avgFormScore.toFixed(1)` still crashes on
-`null` because TypeScript is not looking at it. `WorkoutLiveScreen.jsx` is the
-one worth converting deliberately — it consumes the most WebSocket data and it
-is where the original voice-cue crash happened. Everything else can convert as
-it is touched.
+**Screens.** `WorkoutLiveScreen` is done — see below. The rest can convert as
+they are touched. Types only protect files that opt in: a `.jsx` screen reading
+`session.avgFormScore.toFixed(1)` still crashes on `null` because TypeScript is
+not looking at it.
 
 Do not convert the whole app in one pass. `allowJs` means `.js` and `.tsx`
 coexist indefinitely; a half-converted codebase is a normal state, not a broken
 one.
+
+**`app-state.jsx`.** It builds its context with `createContext(null)`, so
+`useAppState()` infers as `never` and screens get nothing useful. The shape is
+declared in `state/app-state-types.ts` and asserted at the call site; converting
+that module would turn the assertion into a real check. It is the highest-value
+remaining conversion for that reason.
 
 **Web dashboard.** Same approach; it shares the REST surface and the live
 observer socket. It can consume the same generated `schema.d.ts`.
