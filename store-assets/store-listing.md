@@ -151,6 +151,19 @@ privacy policy, which currently states the app is not directed at under-13s.
 
 ---
 
+## Category and contact details
+
+| Field | Value |
+|---|---|
+| App or game | App |
+| Category | Health & Fitness |
+| Tags | Fitness, Workout, Personal training |
+| Contact email | ahmaisma555@gmail.com |
+| Website | `https://web-ahmadiss12s-projects.vercel.app` |
+| Phone | Optional, leave blank |
+
+---
+
 ## Required URLs
 
 | Field | Value |
@@ -175,4 +188,17 @@ production deployment.
 |---|---|---|
 | App icon | 512x512 PNG | Ready — `play-store-icon-512.png` |
 | Feature graphic | 1024x500 PNG/JPEG | Ready — `play-feature-graphic-1024x500.png` |
-| Phone screenshots | 2-8, min 320px per side, max 2:1 ratio | **Needs recapture at device resolution** |
+| Phone screenshots | 2-8, min 320px per side, max 2:1 ratio | Ready — 8 in `screenshots/`, 1241x2444 (1.97:1) |
+| Promo video | Public or unlisted YouTube URL, ads off | **Needs the YouTube URL** (see below) |
+
+---
+
+## Promo video
+
+The video file stays out of the repo (see `.gitignore`). Upload it to YouTube
+as public or unlisted, turn monetization off, and paste the link here and in
+Play Console under Main store listing > Video.
+
+```
+YouTube URL: TODO
+```

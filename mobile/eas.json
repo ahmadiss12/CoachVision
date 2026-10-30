@@ -31,5 +31,14 @@
         "EXPO_PUBLIC_WEB_DASHBOARD_URL": "https://web-ahmadiss12s-projects.vercel.app"
       }
     }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
   }
 }
