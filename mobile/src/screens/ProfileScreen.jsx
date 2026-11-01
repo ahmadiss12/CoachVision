@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { MetricTile } from '@/src/components/MetricTile';
@@ -19,11 +19,6 @@ export function ProfileScreen() {
     const displayName = authUser?.email?.split('@')[0] ?? 'Athlete';
     const isClient = userRole === 'client';
     const handleUploadAvatar = async () => {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-            Alert.alert('Permission needed', 'Please allow photo access to upload a profile picture.');
-            return;
-        }
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             quality: 0.8,
