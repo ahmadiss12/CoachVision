@@ -97,6 +97,13 @@ class EntitlementLimits(BaseModel):
     max_programs: int | None = Field(alias="maxPrograms")
 
 
+class PlanSummary(BaseModel):
+    """What one plan includes, whoever is asking."""
+
+    features: list[str]
+    limits: EntitlementLimits
+
+
 class EntitlementsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -105,6 +112,10 @@ class EntitlementsResponse(BaseModel):
     early_access: bool = Field(alias="earlyAccess")
     features: list[str]
     limits: EntitlementLimits
+    # Every plan's contents, lowest first, so clients can say which plan a
+    # locked feature needs (and label paid features during early access)
+    # without hard-coding the rules.
+    plans: dict[str, PlanSummary] = Field(default_factory=dict)
     # Exercises outside limits.exerciseIds that a trainer's plan unlocks for
     # this user through an assigned program.
     sponsored_exercise_ids: list[str] = Field(default_factory=list, alias="sponsoredExerciseIds")

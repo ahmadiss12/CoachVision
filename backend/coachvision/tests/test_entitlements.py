@@ -215,6 +215,20 @@ class EntitlementsApiTest(unittest.TestCase):
             },
         )
 
+    def test_plan_catalog_is_listed_even_during_early_access(self) -> None:
+        # The app labels paid features "free during early access", so it needs
+        # the real plan contents while the caller's own limits are all lifted.
+        _, headers = _register()
+        with patch.object(settings, "early_access", True):
+            body = client.get("/v1/me/entitlements", headers=headers).json()
+        self.assertEqual(list(body["plans"]), list(PLANS))
+        self.assertEqual(body["plans"]["free"]["limits"]["exerciseIds"], sorted(FREE_EXERCISE_IDS))
+        self.assertEqual(body["plans"]["free"]["limits"]["historyDays"], 14)
+        self.assertEqual(body["plans"]["free"]["features"], [])
+        self.assertIn("analytics", body["plans"]["plus"]["features"])
+        self.assertNotIn("live_monitoring", body["plans"]["plus"]["features"])
+        self.assertEqual(body["plans"]["pro"]["limits"]["maxClients"], 30)
+
     def test_user_cannot_choose_their_own_plan(self) -> None:
         # A plan must only change through the admin route (and later, billing).
         smuggled = {"subscription_plan": "pro", "subscriptionPlan": "pro", "plan": "pro"}
