@@ -20,6 +20,8 @@ function normalizeFatiguePrediction(payload) {
     predictionId: payload.predictionId ?? payload.prediction_id ?? null,
     explainability: (payload.explainability ?? []).map(normalizeExplainability),
     featureSnapshot: payload.featureSnapshot ?? payload.feature_snapshot ?? {},
+    // True when the plan only includes the fatigue level.
+    detailLocked: Boolean(payload.detailLocked ?? payload.detail_locked),
   };
 }
 

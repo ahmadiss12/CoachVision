@@ -8,7 +8,9 @@ import { Input } from '@/src/components/Input';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { createProgram } from '@/src/services/api/programs';
+import { alertIfPlanRequired } from '@/src/services/plan-alert';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 const EXERCISE_CATALOG = [
@@ -54,6 +56,10 @@ function Stepper({ label, value, onChange, min = 1, max = 99, step = 1, colors }
 export function ProgramBuilderScreen() {
     const router = useRouter();
     const { themeMode } = useAppState();
+    const { can, limits } = usePlan();
+    // A program can only prescribe what the trainer's own plan includes.
+    const canPrescribe = (exerciseId) => limits.exerciseIds == null || limits.exerciseIds.includes(exerciseId);
+    const canPrescribeLoad = can('weighted_training');
     const colors = getThemeColors(themeMode);
     const [name, setName] = useState('');
     const [weeks, setWeeks] = useState(1);
@@ -152,6 +158,9 @@ export function ProgramBuilderScreen() {
             });
             router.back();
         } catch (err) {
+            if (alertIfPlanRequired(err, router)) {
+                return;
+            }
             Alert.alert('Save failed', err?.message || 'Could not save the program.');
         } finally {
             setIsSaving(false);
@@ -213,7 +222,7 @@ export function ProgramBuilderScreen() {
                   step={15}
                   colors={colors}
                 />
-                {LOAD_BEARING.has(exercise.exerciseId) ? (
+                {canPrescribeLoad && LOAD_BEARING.has(exercise.exerciseId) ? (
                   <Stepper
                     label="Load (kg)"
                     value={exercise.externalLoadKg}
@@ -229,15 +238,20 @@ export function ProgramBuilderScreen() {
 
             {pickingForDay === day.dayIndex ? (
               <View style={styles.pickerWrap}>
-                {EXERCISE_CATALOG.map((entry) => (
-                  <Pressable
-                    key={entry.id}
-                    onPress={() => addExercise(day.dayIndex, entry.id)}
-                    style={[styles.pickerChip, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}
-                  >
-                    <Text style={[styles.pickerChipText, { color: colors.textPrimary }]}>{entry.label}</Text>
-                  </Pressable>
-                ))}
+                {EXERCISE_CATALOG.map((entry) => {
+                    const isLocked = !canPrescribe(entry.id);
+                    return (
+                      <Pressable
+                        key={entry.id}
+                        accessibilityLabel={isLocked ? `${entry.label}, locked` : entry.label}
+                        onPress={() => (isLocked ? router.push('/(app)/plans') : addExercise(day.dayIndex, entry.id))}
+                        style={[styles.pickerChip, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }, isLocked && styles.pickerChipLocked]}
+                      >
+                        {isLocked ? <Ionicons name="lock-closed" size={12} color={colors.warning} /> : null}
+                        <Text style={[styles.pickerChipText, { color: colors.textPrimary }]}>{entry.label}</Text>
+                      </Pressable>
+                    );
+                })}
               </View>
             ) : (
               <PrimaryButton
@@ -284,7 +298,11 @@ const styles = StyleSheet.create({
     },
     stepperValue: { minWidth: 40, textAlign: 'center', fontWeight: '900', fontSize: 14 },
     pickerWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    pickerChipLocked: { opacity: 0.6 },
     pickerChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
         borderWidth: 1,
         borderRadius: 999,
         paddingHorizontal: 12,

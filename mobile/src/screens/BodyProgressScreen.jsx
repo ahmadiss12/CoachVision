@@ -4,10 +4,12 @@ import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
 import { Input } from '@/src/components/Input';
+import { LockedNotice } from '@/src/components/LockedNotice';
 import { MetricTile } from '@/src/components/MetricTile';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 function toNumber(text) {
@@ -17,6 +19,8 @@ function toNumber(text) {
 
 export function BodyProgressScreen() {
     const { bodyMetrics, profile, addBodyMetricEntry, loadBodyMetrics, themeMode } = useAppState();
+    const { can, planForFeature } = usePlan();
+    const tracksBodyFat = can('body_progress');
     const colors = getThemeColors(themeMode);
     const [weightKg, setWeightKg] = useState(profile ? String(profile.weightKg) : '');
     const [bodyFatPercent, setBodyFatPercent] = useState(profile ? String(profile.bodyFatPercent) : '');
@@ -36,7 +40,9 @@ export function BodyProgressScreen() {
     const addEntry = () => {
         addBodyMetricEntry({
             weightKg: toNumber(weightKg),
-            bodyFatPercent: toNumber(bodyFatPercent),
+            // Without body-fat tracking the last known value is carried forward,
+            // so an upgrade later does not find made-up zeros in the log.
+            bodyFatPercent: tracksBodyFat ? toNumber(bodyFatPercent) : undefined,
             date: date || undefined,
         });
     };
@@ -51,7 +57,9 @@ export function BodyProgressScreen() {
         <Card style={styles.formCard}>
           <Input icon="calendar-outline" label="Date" value={date} onChangeText={setDate}/>
           <Input icon="scale-outline" label="Weight (kg)" value={weightKg} keyboardType="numeric" placeholder="e.g. 72" onChangeText={setWeightKg}/>
-          <Input icon="water-outline" label="Body fat (%)" value={bodyFatPercent} keyboardType="numeric" placeholder="e.g. 18" onChangeText={setBodyFatPercent}/>
+          {tracksBodyFat ? (
+            <Input icon="water-outline" label="Body fat (%)" value={bodyFatPercent} keyboardType="numeric" placeholder="e.g. 18" onChangeText={setBodyFatPercent}/>
+          ) : null}
           <PrimaryButton icon="add-circle-outline" title="Add entry" onPress={addEntry}/>
         </Card>
 
@@ -62,13 +70,21 @@ export function BodyProgressScreen() {
             value={`${deltaWeight >= 0 ? '+' : ''}${deltaWeight} kg`}
             tone={deltaWeight < 0 ? 'success' : deltaWeight > 0 ? 'danger' : 'brand'}
           />
-          <MetricTile
-            icon={deltaBodyFat < 0 ? 'trending-down-outline' : 'trending-up-outline'}
-            label="Body fat change"
-            value={`${deltaBodyFat >= 0 ? '+' : ''}${deltaBodyFat}%`}
-            tone={deltaBodyFat < 0 ? 'success' : deltaBodyFat > 0 ? 'danger' : 'brand'}
-          />
+          {tracksBodyFat ? (
+            <MetricTile
+              icon={deltaBodyFat < 0 ? 'trending-down-outline' : 'trending-up-outline'}
+              label="Body fat change"
+              value={`${deltaBodyFat >= 0 ? '+' : ''}${deltaBodyFat}%`}
+              tone={deltaBodyFat < 0 ? 'success' : deltaBodyFat > 0 ? 'danger' : 'brand'}
+            />
+          ) : null}
         </View>
+        {tracksBodyFat ? null : (
+          <LockedNotice
+            plan={planForFeature('body_progress')}
+            message="Track body fat alongside your weight and see how it changes."
+          />
+        )}
 
         <View style={styles.listHeader}>
           <Ionicons name="list-outline" size={18} color={colors.brandAlt} />
@@ -94,6 +110,7 @@ export function BodyProgressScreen() {
                   item={item}
                   deltaWeightRow={deltaWeightRow}
                   deltaBodyFatRow={deltaBodyFatRow}
+                  showBodyFat={tracksBodyFat}
                   colors={colors}
                 />);
             }}
@@ -102,7 +119,7 @@ export function BodyProgressScreen() {
     </SafeAreaView>);
 }
 
-function ProgressItem({ item, deltaWeightRow, deltaBodyFatRow, colors }) {
+function ProgressItem({ item, deltaWeightRow, deltaBodyFatRow, showBodyFat, colors }) {
     const weightColor = deltaWeightRow === null
         ? colors.textSecondary
         : deltaWeightRow < 0
@@ -126,13 +143,15 @@ function ProgressItem({ item, deltaWeightRow, deltaBodyFatRow, colors }) {
           <View style={styles.itemCopy}>
             <Text style={[styles.itemDate, { color: colors.textPrimary }]}>{item.date}</Text>
             <Text style={[styles.itemMeta, { color: colors.textSecondary }]}>
-              {item.weightKg} kg | {item.bodyFatPercent}%
+              {showBodyFat ? `${item.weightKg} kg | ${item.bodyFatPercent}%` : `${item.weightKg} kg`}
             </Text>
           </View>
         </View>
         <View style={styles.deltaRow}>
           <DeltaBadge color={weightColor} text={deltaWeightRow === null ? 'Weight --' : `Weight ${deltaWeightRow >= 0 ? '+' : ''}${deltaWeightRow} kg`} />
-          <DeltaBadge color={bodyFatColor} text={deltaBodyFatRow === null ? 'Body fat --' : `Body fat ${deltaBodyFatRow >= 0 ? '+' : ''}${deltaBodyFatRow}%`} />
+          {showBodyFat ? (
+            <DeltaBadge color={bodyFatColor} text={deltaBodyFatRow === null ? 'Body fat --' : `Body fat ${deltaBodyFatRow >= 0 ? '+' : ''}${deltaBodyFatRow}%`} />
+          ) : null}
         </View>
       </Card>
     );

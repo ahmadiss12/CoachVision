@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '../components/Card';
+import { LockedNotice } from '../components/LockedNotice';
 import { MetricTile } from '../components/MetricTile';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -13,6 +14,7 @@ import {
     fatigueLabel,
 } from '../services/fatigue-plan';
 import { useAppState } from '../state/app-state';
+import { usePlan } from '../state/use-plan';
 import { getThemeColors } from '../theme/colors';
 
 function severityColor(severity, colors) {
@@ -110,6 +112,7 @@ function fatigueColor(level, colors) {
 }
 
 function FatigueOutlook({ prediction, summary, colors }) {
+    const { can, planForFeature } = usePlan();
     const exerciseId = summary?.exerciseId ?? summary?.exerciseName;
     const meta = getExerciseMetadata(exerciseId);
     const unitName = meta.measurementType === 'hold' ? 'seconds' : 'reps';
@@ -123,6 +126,21 @@ function FatigueOutlook({ prediction, summary, colors }) {
           <Card style={styles.card}>
             <SectionTitle icon="pulse-outline" title="Next-session outlook" colors={colors} />
             <EmptyLine icon="analytics-outline" text="No fatigue prediction is available yet." colors={colors} />
+          </Card>
+        );
+    }
+
+    if (!can('readiness_detail') || prediction.detailLocked) {
+        return (
+          <Card style={styles.card}>
+            <SectionTitle icon="pulse-outline" title="Next-session outlook" colors={colors} />
+            <View style={styles.outlookRow}>
+              <OutlookBox icon="warning-outline" label="Fatigue" value={fatigueLabel(prediction.fatigueLevel)} color={fatigueColor(prediction.fatigueLevel, colors)} colors={colors} compact />
+            </View>
+            <LockedNotice
+              plan={planForFeature('readiness_detail')}
+              message="See your readiness score, what is behind it, and a target for next time."
+            />
           </Card>
         );
     }
@@ -189,6 +207,7 @@ function MiniPill({ icon, text, colors }) {
 }
 
 function MistakeSummary({ feedback, colors }) {
+    const { planForFeature } = usePlan();
     if (!feedback) {
         return (
           <Card style={styles.card}>
@@ -199,6 +218,10 @@ function MistakeSummary({ feedback, colors }) {
     }
 
     const hasIssues = feedback.topErrors?.length > 0;
+    // The short review holds one issue. The total still counts every instance
+    // found, so a higher total means the full review has more to show.
+    const hasLockedIssues = feedback.fullReview === false
+        && feedback.errorsCount > (feedback.topErrors?.[0]?.count ?? 0);
     return (
       <Card style={styles.card}>
         <SectionTitle icon="clipboard-outline" title="Form review" colors={colors} />
@@ -229,6 +252,13 @@ function MistakeSummary({ feedback, colors }) {
               <ActionItem key={`${item.priority}-${item.title}`} item={item} colors={colors} />
             ))}
           </View>
+        ) : null}
+
+        {hasLockedIssues ? (
+          <LockedNotice
+            plan={planForFeature('full_session_review')}
+            message="More issues came up in this session. See all of them and every cue for next time."
+          />
         ) : null}
       </Card>
     );

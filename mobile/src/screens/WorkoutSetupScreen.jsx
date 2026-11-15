@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LockedNotice } from '../components/LockedNotice';
+import { PlanTag } from '../components/PlanTag';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { getExerciseMetadata, supportsExternalLoad } from '../constants/exercise-metadata';
@@ -13,6 +15,7 @@ import {
     findLatestSessionForExercise,
 } from '../services/fatigue-plan';
 import { useAppState } from '../state/app-state';
+import { usePlan } from '../state/use-plan';
 import { getThemeColors } from '../theme/colors';
 const exercises = [
     { id: 'squat', label: 'Squat', icon: 'body-outline', image: require('@/images/squat.jpg') },
@@ -74,8 +77,26 @@ export function WorkoutSetupScreen() {
         loadFatigueHistory,
         workoutPreferences,
         saveWorkoutPreferences,
+        loadEntitlements,
     } = useAppState();
+    const { can, canUseExercise, planForExercise, planForFeature, earlyAccess, limits } = usePlan();
     const colors = getThemeColors(themeMode);
+    // An exercise outside the user's own plan can still be open to them through
+    // a program their coach assigned; the coach's plan then covers its load too,
+    // as it does for any exercise started from the coach's plan for today.
+    const isOwnExercise = useCallback(
+        (exerciseId) => limits.exerciseIds == null || limits.exerciseIds.includes(exerciseId),
+        [limits.exerciseIds],
+    );
+    const planParams = useLocalSearchParams();
+    const coachExerciseId = planParams?.assignmentId ? String(planParams.exerciseId ?? '') : null;
+    const tracksLoad = useCallback(
+        (exerciseId) => supportsExternalLoad(exerciseId)
+            && (can('weighted_training') || !isOwnExercise(exerciseId) || exerciseId === coachExerciseId),
+        [can, coachExerciseId, isOwnExercise],
+    );
+    const showsReadinessDetail = can('readiness_detail');
+    const suggestsTarget = can('next_session_target');
     const preferredDifficulty = workoutPreferences?.difficulty || 'beginner';
     const [selectedExercise, setSelectedExercise] = useState(null);
     const [difficulty, setDifficulty] = useState(preferredDifficulty);
@@ -87,9 +108,9 @@ export function WorkoutSetupScreen() {
     const [isCheckingReadiness, setIsCheckingReadiness] = useState(false);
     const readinessRequestIdRef = useRef(0);
     const targetRepsRef = useRef(targetReps);
-    const planParams = useLocalSearchParams();
     useEffect(() => {
         loadExercises();
+        loadEntitlements();
         // Pre-fill from Today's plan when opened via a plan exercise.
         if (planParams?.exerciseId) {
             setSelectedExercise(String(planParams.exerciseId));
@@ -151,7 +172,7 @@ export function WorkoutSetupScreen() {
         if (!selectedExercise)
             return;
         const meta = getExerciseMetadata(selectedExercise);
-        const loadKg = supportsExternalLoad(selectedExercise) ? externalLoadKg : 0;
+        const loadKg = tracksLoad(selectedExercise) ? externalLoadKg : 0;
         const started = await startWorkout({
             exerciseName: selectedExercise,
             difficulty,
@@ -181,13 +202,19 @@ export function WorkoutSetupScreen() {
         [history, selectedExercise],
     );
     const suggestedPlan = useMemo(
-        () => buildSuggestedRepTarget({
-            prediction: activeFatiguePrediction,
-            lastSession: lastExerciseSession,
-            fallbackReps: targetReps,
-            exerciseId: selectedExercise,
-        }),
-        [activeFatiguePrediction, lastExerciseSession, selectedExercise, targetReps],
+        () => {
+            const plan = buildSuggestedRepTarget({
+                prediction: activeFatiguePrediction,
+                lastSession: lastExerciseSession,
+                fallbackReps: targetReps,
+                exerciseId: selectedExercise,
+            });
+            if (suggestsTarget) {
+                return plan;
+            }
+            return { ...plan, label: 'Your target', detail: 'Set the target you want for this session.' };
+        },
+        [activeFatiguePrediction, lastExerciseSession, selectedExercise, suggestsTarget, targetReps],
     );
     const selectedMeta = getExerciseMetadata(selectedExercise);
     const featureSnapshot = activeFatiguePrediction?.featureSnapshot ?? {};
@@ -202,7 +229,7 @@ export function WorkoutSetupScreen() {
         readinessRequestIdRef.current = requestId;
         const meta = getExerciseMetadata(exerciseId);
         const fallbackTarget = meta.measurementType === 'hold' ? 30 : 10;
-        const loadKg = supportsExternalLoad(exerciseId) ? externalLoadKg : 0;
+        const loadKg = tracksLoad(exerciseId) ? externalLoadKg : 0;
         setIsCheckingReadiness(true);
         const prediction = await predictFatigue({
             exerciseId,
@@ -218,11 +245,13 @@ export function WorkoutSetupScreen() {
         if (requestId !== readinessRequestIdRef.current) {
             return;
         }
-        await loadFatigueHistory(exerciseId);
+        if (showsReadinessDetail) {
+            await loadFatigueHistory(exerciseId);
+        }
         if (requestId !== readinessRequestIdRef.current) {
             return;
         }
-        if (prediction) {
+        if (prediction && suggestsTarget) {
             const lastSession = findLatestSessionForExercise(history, exerciseId);
             const plan = buildSuggestedRepTarget({
                 prediction,
@@ -241,8 +270,11 @@ export function WorkoutSetupScreen() {
         predictFatigue,
         profile?.weightKg,
         selectedExercise,
+        showsReadinessDetail,
         sleepHours,
         stress,
+        suggestsTarget,
+        tracksLoad,
     ]);
 
     useEffect(() => {
@@ -267,7 +299,11 @@ export function WorkoutSetupScreen() {
     ]);
 
     const selectExercise = (exerciseId) => {
-        if (!supportsExternalLoad(exerciseId)) {
+        if (!canUseExercise(exerciseId)) {
+            router.push('/(app)/plans');
+            return;
+        }
+        if (!tracksLoad(exerciseId)) {
             setExternalLoadKg(0);
         }
         const meta = getExerciseMetadata(exerciseId);
@@ -276,7 +312,9 @@ export function WorkoutSetupScreen() {
         setSelectedExercise(exerciseId);
     };
     const exerciseLabel = resolvedExercises.find((e) => e.id === selectedExercise)?.label ?? '';
-    const selectedSupportsLoad = supportsExternalLoad(selectedExercise);
+    const selectedSupportsLoad = tracksLoad(selectedExercise);
+    const loadIsLocked = supportsExternalLoad(selectedExercise) && !selectedSupportsLoad;
+    const readinessLocked = !showsReadinessDetail || activeFatiguePrediction?.detailLocked === true;
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       {!selectedExercise ? (<ScrollView contentContainerStyle={[styles.exerciseRoot, { paddingHorizontal: H_PADDING, paddingBottom: H_PADDING }]} showsVerticalScrollIndicator={false}>
           <ScreenHeader
@@ -288,7 +326,17 @@ export function WorkoutSetupScreen() {
 
           <View style={[styles.gridOuter, { gap: GRID_GAP, marginTop: 12 }]}>
             {exerciseRows.map((row, rowIndex) => (<View key={rowIndex} style={[styles.gridRow, { gap: GRID_GAP }]}>
-                {row.map((item) => (<Pressable key={item.id} style={({ pressed }) => [
+                {row.map((item) => {
+                    const isLocked = !canUseExercise(item.id);
+                    const paidPlan = planForExercise(item.id);
+                    const planNote = !paidPlan || isLocked
+                        ? null
+                        : earlyAccess
+                            ? 'Free in early access'
+                            : !isOwnExercise(item.id)
+                                ? 'From your coach'
+                                : null;
+                    return (<Pressable key={item.id} accessibilityLabel={isLocked ? `${item.label}, locked` : item.label} style={({ pressed }) => [
                         styles.exerciseCard,
                         {
                             backgroundColor: colors.surface,
@@ -297,15 +345,22 @@ export function WorkoutSetupScreen() {
                         },
                     ]} onPress={() => selectExercise(item.id)}>
                     <View style={[styles.cardImageWrap, { backgroundColor: colors.surfaceAlt }]}>
-                      <Image source={item.image} style={styles.cardImage} contentFit="cover"/>
+                      <Image source={item.image} style={[styles.cardImage, isLocked && styles.cardImageLocked]} contentFit="cover"/>
                       <View style={[styles.exerciseIconBadge, { backgroundColor: colors.surface }]}>
-                        <Ionicons name={item.icon} size={18} color={colors.brandAlt} />
+                        <Ionicons name={isLocked ? 'lock-closed' : item.icon} size={18} color={isLocked ? colors.warning : colors.brandAlt} />
                       </View>
+                      <PlanTag plan={paidPlan} locked={isLocked} style={styles.exercisePlanTag} />
                     </View>
                     <Text style={[styles.cardLabel, { color: colors.textPrimary }]} numberOfLines={2}>
                       {item.label}
                     </Text>
-                  </Pressable>))}
+                    {planNote ? (
+                      <Text style={[styles.cardNote, { color: colors.textSecondary }]} numberOfLines={1}>
+                        {planNote}
+                      </Text>
+                    ) : null}
+                  </Pressable>);
+                })}
               </View>))}
           </View>
           {latestError ? <Text style={[styles.error, { color: colors.danger }]}>{latestError}</Text> : null}
@@ -335,9 +390,13 @@ export function WorkoutSetupScreen() {
                 </Text>
               </View>
               <View style={[styles.scorePill, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
-                <Text style={[styles.scoreValue, { color: colors.brandAlt }]}>
-                  {activeFatiguePrediction?.readinessScore ?? '--'}
-                </Text>
+                {readinessLocked ? (
+                  <Ionicons name="lock-closed" size={18} color={colors.warning} />
+                ) : (
+                  <Text style={[styles.scoreValue, { color: colors.brandAlt }]}>
+                    {activeFatiguePrediction?.readinessScore ?? '--'}
+                  </Text>
+                )}
                 <Text style={[styles.scoreLabel, { color: colors.textSecondary }]}>ready</Text>
               </View>
             </View>
@@ -375,7 +434,19 @@ export function WorkoutSetupScreen() {
               ) : null}
             </View>
 
-            {activeFatiguePrediction ? (
+            {loadIsLocked ? (
+              <LockedNotice
+                plan={planForFeature('weighted_training')}
+                message="Log the weight you lift and count it toward your fatigue."
+              />
+            ) : null}
+
+            {readinessLocked ? (
+              <LockedNotice
+                plan={planForFeature('readiness_detail')}
+                message="See your readiness score, what is behind it, and a suggested target."
+              />
+            ) : activeFatiguePrediction ? (
               <>
                 <Text style={[styles.recommendationText, { color: colors.textSecondary }]}>
                   {activeFatiguePrediction.recommendation}
@@ -517,6 +588,20 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         textAlign: 'center',
         marginTop: 8,
+    },
+    cardImageLocked: {
+        opacity: 0.35,
+    },
+    exercisePlanTag: {
+        position: 'absolute',
+        left: 8,
+        top: 8,
+    },
+    cardNote: {
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'center',
+        marginTop: 2,
     },
     backRow: {
         flexDirection: 'row',

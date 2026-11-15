@@ -2,11 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Card } from '@/src/components/Card';
+import { LockedNotice } from '@/src/components/LockedNotice';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getExerciseMetadata } from '@/src/constants/exercise-metadata';
 import { exportDailyReportPdf } from '@/src/services/reports/daily-report-pdf';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 function HistoryItem({ item, colors }) {
@@ -45,7 +48,10 @@ function MiniStat({ icon, label, value, colors }) {
 }
 
 export function HistoryScreen() {
+    const router = useRouter();
     const { history, loadHistory, themeMode } = useAppState();
+    const { can, limits, planForHigherLimit } = usePlan();
+    const canExportPdf = can('pdf_report');
     const [isExporting, setIsExporting] = useState(false);
     const colors = getThemeColors(themeMode);
     useEffect(() => {
@@ -53,6 +59,10 @@ export function HistoryScreen() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     const handleExportToday = useCallback(async () => {
+        if (!canExportPdf) {
+            router.push('/(app)/plans');
+            return;
+        }
         if (isExporting) {
             return;
         }
@@ -67,7 +77,14 @@ export function HistoryScreen() {
         } finally {
             setIsExporting(false);
         }
-    }, [isExporting]);
+    }, [canExportPdf, isExporting, router]);
+    const historyNotice = limits.historyDays == null ? null : (
+      <LockedNotice
+        plan={planForHigherLimit('historyDays')}
+        title={`Showing the last ${limits.historyDays} days`}
+        message="Older workouts are saved and come back when you upgrade."
+      />
+    );
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
         <ScreenHeader
@@ -88,13 +105,18 @@ export function HistoryScreen() {
                 },
               ]}
             >
-              <Ionicons name={isExporting ? 'sync-outline' : 'document-text-outline'} size={17} color={colors.brandAlt} />
+              <Ionicons
+                name={!canExportPdf ? 'lock-closed' : isExporting ? 'sync-outline' : 'document-text-outline'}
+                size={17}
+                color={canExportPdf ? colors.brandAlt : colors.warning}
+              />
               <Text style={[styles.exportText, { color: colors.textPrimary }]} numberOfLines={1}>
                 {isExporting ? 'Exporting' : 'PDF'}
               </Text>
             </Pressable>
           }
         />
+        {history.length === 0 ? historyNotice : null}
         {history.length === 0 ? (<Card style={styles.emptyCard}>
             <View style={[styles.emptyIcon, { backgroundColor: colors.surfaceAlt }]}>
               <Ionicons name="calendar-clear-outline" size={28} color={colors.textSecondary} />
@@ -102,6 +124,7 @@ export function HistoryScreen() {
             <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No sessions yet</Text>
             <Text style={[styles.empty, { color: colors.textSecondary }]}>Complete a workout and your summary will appear here.</Text>
           </Card>) : (<FlatList
+            ListFooterComponent={historyNotice}
             data={history}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => <HistoryItem item={item} colors={colors}/>}

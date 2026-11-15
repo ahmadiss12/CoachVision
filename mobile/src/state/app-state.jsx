@@ -14,6 +14,7 @@ import {
   refreshAuthToken,
   registerUser,
 } from '../services/api/auth';
+import { getEntitlements } from '../services/api/billing';
 import { clearApiAuthTokens, setApiAuthTokens } from '../services/api/client';
 import { listExercises } from '../services/api/exercises';
 import {
@@ -46,6 +47,7 @@ import {
   saveStoredWorkoutPreferences,
   userStorageKey,
 } from '../services/local/app-storage';
+import { normalizeEntitlements, UNRESTRICTED_ENTITLEMENTS } from '../services/plan-access';
 const defaultMetrics = {
     count: 0,
     state: 'idle',
@@ -150,6 +152,7 @@ export function AppStateProvider({ children }) {
     const [availableExercises, setAvailableExercises] = useState([]);
     const [history, setHistory] = useState([]);
     const [bodyMetrics, setBodyMetrics] = useState([]);
+    const [entitlements, setEntitlements] = useState(UNRESTRICTED_ENTITLEMENTS);
     const userKeyRef = useRef(null);
     const liveMetricsRef = useRef(defaultMetrics);
     const liveMetricsListenersRef = useRef(new Set());
@@ -189,6 +192,7 @@ export function AppStateProvider({ children }) {
         setLatestFatiguePrediction(null);
         setFatigueHistory([]);
         setHistory([]);
+        setEntitlements(UNRESTRICTED_ENTITLEMENTS);
     };
 
     const ensureFreshAccessToken = async () => {
@@ -310,6 +314,31 @@ export function AppStateProvider({ children }) {
         }
     };
 
+    // The plan decides what the app shows as locked; the server enforces it.
+    // On any failure the previous value is kept (unrestricted until the first
+    // answer), so a flaky connection never hides a feature the user has.
+    const loadEntitlements = async () => {
+        try {
+            const next = normalizeEntitlements(await getEntitlements());
+            setEntitlements(next);
+            return next;
+        } catch (error) {
+            if (error?.status === 401) {
+                const refreshed = await ensureFreshAccessToken();
+                if (refreshed) {
+                    try {
+                        const next = normalizeEntitlements(await getEntitlements());
+                        setEntitlements(next);
+                        return next;
+                    } catch {
+                        return null;
+                    }
+                }
+            }
+            return null;
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
 
@@ -355,7 +384,7 @@ export function AppStateProvider({ children }) {
                 }
 
                 await applyAuthenticatedUser(user);
-                await Promise.all([loadHistory(), loadBodyMetrics()]);
+                await Promise.all([loadHistory(), loadBodyMetrics(), loadEntitlements()]);
                 setLatestError(null);
             } catch {
                 if (!cancelled) {
@@ -391,6 +420,7 @@ export function AppStateProvider({ children }) {
             setTokensEverywhere(tokens);
             resetUserScopedState();
             const user = await loadCurrentUser();
+            await loadEntitlements();
             await loadHistory();
             await loadBodyMetrics();
             return user;
@@ -422,6 +452,7 @@ export function AppStateProvider({ children }) {
             setTokensEverywhere(tokens);
             resetUserScopedState();
             const user = await loadCurrentUser();
+            await loadEntitlements();
             await loadHistory();
             await loadBodyMetrics();
             return user;
@@ -878,6 +909,7 @@ export function AppStateProvider({ children }) {
         latestFeedback,
         latestFatiguePrediction,
         fatigueHistory,
+        entitlements,
         login,
         register,
         logout,
@@ -886,6 +918,7 @@ export function AppStateProvider({ children }) {
         loadCurrentUser,
         loadHistory,
         loadBodyMetrics,
+        loadEntitlements,
         loadExercises,
         predictFatigue,
         loadFatigueHistory,

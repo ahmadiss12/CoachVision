@@ -19,7 +19,9 @@ import { Input } from '@/src/components/Input';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { TrainerDashboardCard } from '@/src/components/TrainerDashboardCard';
+import { planLabel } from '@/src/services/plan-access';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 export function SettingsScreen() {
@@ -35,6 +37,7 @@ export function SettingsScreen() {
         toggleThemeMode,
         userRole,
     } = useAppState();
+    const { plan, earlyAccess } = usePlan();
     const canUseWebDashboard = userRole === 'trainer' || userRole === 'admin';
     const colors = getThemeColors(themeMode);
     const bmiCategory = getBmiCategoryLabel(profile?.bmi ?? null);
@@ -86,6 +89,17 @@ export function SettingsScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textSecondary}/>
         </Pressable>
+
+        <Card style={styles.listCard}>
+          <SettingRow
+            icon="ribbon-outline"
+            label={`Plan: ${planLabel(plan)}`}
+            value={earlyAccess ? 'Early access: every feature is free for now' : 'See what each plan includes'}
+            onPress={() => router.push('/(app)/plans')}
+            colors={colors}
+            isLast
+          />
+        </Card>
 
         <Card style={styles.listCard}>
           <SettingRow icon="create-outline" label="Edit body data" value={profile ? `${profile.heightCm} cm | ${profile.weightKg} kg` : 'Not set'} onPress={() => router.push('/(app)/profile-edit')} colors={colors}/>

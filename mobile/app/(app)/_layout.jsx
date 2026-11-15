@@ -33,5 +33,6 @@ export default function AppLayout() {
       <Stack.Screen name="program-builder"/>
       <Stack.Screen name="assign-program"/>
       <Stack.Screen name="chat"/>
+      <Stack.Screen name="plans"/>
     </Stack>);
 }

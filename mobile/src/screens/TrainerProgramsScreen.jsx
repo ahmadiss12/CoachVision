@@ -4,15 +4,18 @@ import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
+import { LockedNotice } from '@/src/components/LockedNotice';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { deleteProgram, listPrograms } from '@/src/services/api/programs';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 export function TrainerProgramsScreen() {
     const router = useRouter();
     const { themeMode, ensureFreshAccessToken } = useAppState();
+    const { limits, planForHigherLimit } = usePlan();
     const colors = getThemeColors(themeMode);
     const [programs, setPrograms] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -63,6 +66,9 @@ export function TrainerProgramsScreen() {
         );
     };
 
+    // Only once the list has loaded, so the button does not flash away.
+    const atProgramLimit = limits.maxPrograms != null && !isLoading && programs.length >= limits.maxPrograms;
+
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
         <ScreenHeader
@@ -70,11 +76,19 @@ export function TrainerProgramsScreen() {
           title="Programs"
           subtitle="Build training plans and assign them to clients."
         />
-        <PrimaryButton
-          icon="add-circle-outline"
-          title="New program"
-          onPress={() => router.push('/(app)/program-builder')}
-        />
+        {atProgramLimit ? (
+          <LockedNotice
+            plan={planForHigherLimit('maxPrograms')}
+            title={`Your plan includes ${limits.maxPrograms} ${limits.maxPrograms === 1 ? 'program' : 'programs'}`}
+            message="Your existing programs stay. Upgrade to build more."
+          />
+        ) : (
+          <PrimaryButton
+            icon="add-circle-outline"
+            title="New program"
+            onPress={() => router.push('/(app)/program-builder')}
+          />
+        )}
         {programs.length === 0 && !isLoading ? (
           <Card style={styles.emptyCard}>
             <View style={[styles.emptyIcon, { backgroundColor: colors.surfaceAlt }]}>

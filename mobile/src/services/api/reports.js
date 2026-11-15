@@ -19,6 +19,8 @@ function toFeedbackShape(payload) {
     version: payload.version,
     generatedAt: payload.generatedAt ?? payload.generated_at,
     updatedAt: payload.updatedAt ?? payload.updated_at,
+    // False when the plan only includes the short review (top issue, one cue).
+    fullReview: (payload.fullReview ?? payload.full_review) !== false,
   };
 }
 

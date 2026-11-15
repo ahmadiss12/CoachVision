@@ -4,15 +4,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
+import { LockedNotice } from '@/src/components/LockedNotice';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { TrainerDashboardCard } from '@/src/components/TrainerDashboardCard';
 import { endClientLink, listClients } from '@/src/services/api/trainer';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 export function TrainerClientsScreen() {
     const router = useRouter();
     const { themeMode, ensureFreshAccessToken } = useAppState();
+    const { limits, planForHigherLimit } = usePlan();
     const colors = getThemeColors(themeMode);
     const [clients, setClients] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -70,8 +73,17 @@ export function TrainerClientsScreen() {
         <ScreenHeader
           icon="people-outline"
           title="My clients"
-          subtitle={`${clients.length} active ${clients.length === 1 ? 'client' : 'clients'}`}
+          subtitle={limits.maxClients == null
+            ? `${clients.length} active ${clients.length === 1 ? 'client' : 'clients'}`
+            : `${clients.length} of ${limits.maxClients} active clients`}
         />
+        {limits.maxClients != null && clients.length >= limits.maxClients ? (
+          <LockedNotice
+            plan={planForHigherLimit('maxClients')}
+            title="Client limit reached"
+            message="Your current clients stay. Upgrade to coach more."
+          />
+        ) : null}
         {error ? (
           <Card style={styles.emptyCard}>
             <Ionicons name="cloud-offline-outline" size={28} color={colors.danger} />

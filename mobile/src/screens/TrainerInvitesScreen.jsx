@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,6 +7,7 @@ import { Card } from '@/src/components/Card';
 import { PrimaryButton } from '@/src/components/PrimaryButton';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { createInvite, listInvites, revokeInvite } from '@/src/services/api/trainer';
+import { alertIfPlanRequired } from '@/src/services/plan-alert';
 import { useAppState } from '@/src/state/app-state';
 import { getThemeColors } from '@/src/theme/colors';
 
@@ -17,6 +19,7 @@ const STATUS_ICONS = {
 };
 
 export function TrainerInvitesScreen() {
+    const router = useRouter();
     const { themeMode, ensureFreshAccessToken } = useAppState();
     const colors = getThemeColors(themeMode);
     const [invites, setInvites] = useState([]);
@@ -69,6 +72,9 @@ export function TrainerInvitesScreen() {
             await refresh();
             shareCode(invite.token);
         } catch (err) {
+            if (alertIfPlanRequired(err, router)) {
+                return;
+            }
             Alert.alert('Failed', err?.message || 'Could not create an invite.');
         } finally {
             setIsCreating(false);

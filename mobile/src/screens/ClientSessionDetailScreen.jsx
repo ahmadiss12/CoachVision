@@ -4,10 +4,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/Card';
+import { LockedNotice } from '@/src/components/LockedNotice';
 import { ScreenHeader } from '@/src/components/ScreenHeader';
 import { getExerciseMetadata } from '@/src/constants/exercise-metadata';
 import { getClientSessionDetail } from '@/src/services/api/trainer';
 import { useAppState } from '@/src/state/app-state';
+import { usePlan } from '@/src/state/use-plan';
 import { getThemeColors } from '@/src/theme/colors';
 
 const SEVERITY_TONES = { high: 'danger', medium: 'warning', low: 'success' };
@@ -22,6 +24,7 @@ function formatDuration(seconds) {
 export function ClientSessionDetailScreen() {
     const { clientId, sessionId, clientName } = useLocalSearchParams();
     const { themeMode, ensureFreshAccessToken } = useAppState();
+    const { planForFeature } = usePlan();
     const colors = getThemeColors(themeMode);
     const [detail, setDetail] = useState(null);
     const [error, setError] = useState(null);
@@ -195,6 +198,14 @@ export function ClientSessionDetailScreen() {
               </View>
               <Text style={[styles.bodyText, { color: colors.textPrimary }]}>{feedback.summaryText}</Text>
             </Card>
+
+            {feedback.fullReview === false ? (
+              <LockedNotice
+                plan={planForFeature('full_client_session_detail')}
+                title="Summary view"
+                message="See every issue, all coaching actions and per-rep quality for your clients' sessions."
+              />
+            ) : null}
 
             {feedback.topErrors?.length > 0 ? (
               <Card style={styles.sectionCard}>
