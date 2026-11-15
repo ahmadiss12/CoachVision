@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from .deps import get_current_user
+from .deps import get_current_user, require_feature
 from .schemas import (
     DailyReportResponse,
     DailyReportSessionResponse,
@@ -90,6 +90,7 @@ def get_daily_report(
     report_date: date | None = Query(default=None, alias="date"),
     db: DbSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _entitled: object = Depends(require_feature("pdf_report")),
 ) -> DailyReportResponse:
     tz = _tz_for_user(current_user)
     selected_date = report_date or datetime.now(tz).date()

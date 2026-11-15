@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session as DbSession
 from sqlalchemy import select
 
 from coachvision.ai.counters.dispatcher import CONFIG_PRESETS, ExerciseType
+from coachvision.api.plan_access import (
+    entitlements_for,
+    exercise_access,
+    exercise_locked_message,
+)
 from coachvision.core.security import decode_token
 from coachvision.db.models import Session as WorkoutSession, TrainerClient, User
 from coachvision.db.session import get_db
@@ -114,6 +119,14 @@ async def websocket_live(
 
     session_state: LiveSessionState | None = None
     db_workout: WorkoutSession | None = None
+    # Whether the workout's owner gets every squat fault probability or only
+    # the top fault (formName). Decided at start so a set is never cut short.
+    full_form_breakdown = True
+
+    def _for_owner(metrics: dict[str, Any]) -> dict[str, Any]:
+        if full_form_breakdown:
+            return metrics
+        return {**metrics, "formProbabilities": None}
 
     try:
         try:
@@ -209,6 +222,23 @@ async def websocket_live(
                     continue
 
                 exercise_id = normalize_exercise_id(exercise_name)
+                user = db.get(User, user_uuid)
+                if user is None:
+                    await _send_error(websocket, None, "user_not_found", WsErrorCode.INVALID_TOKEN)
+                    continue
+                access = exercise_access(db, user, exercise_id)
+                if not access.allowed:
+                    await _send_error(
+                        websocket,
+                        None,
+                        exercise_locked_message(exercise_id),
+                        WsErrorCode.PLAN_REQUIRED,
+                    )
+                    continue
+                if not access.weighted:
+                    external_load_kg = None
+                full_form_breakdown = entitlements_for(user).has_feature("full_form_breakdown")
+
                 workout, err = load_or_create_workout_for_ws_start(
                     db,
                     user_id=user_uuid,
@@ -290,7 +320,8 @@ async def websocket_live(
                     continue
 
                 metrics = _metrics_message(result)
-                await websocket.send_json(metrics)
+                await websocket.send_json(_for_owner(metrics))
+                # Observers are trainers whose own plan covers the full view.
                 await live_registry.broadcast(session_state.session_id, metrics)
                 continue
 
@@ -334,7 +365,8 @@ async def websocket_live(
                     continue
 
                 metrics = _metrics_message(result)
-                await websocket.send_json(metrics)
+                await websocket.send_json(_for_owner(metrics))
+                # Observers are trainers whose own plan covers the full view.
                 await live_registry.broadcast(session_state.session_id, metrics)
                 continue
 
@@ -415,6 +447,16 @@ async def websocket_observe(
     if viewer is None or viewer.role not in ("trainer", "admin"):
         await _send_error(websocket, session_id, "Trainer or admin required", WsErrorCode.INVALID_TOKEN)
         await websocket.close(code=4403)
+        return
+
+    if not entitlements_for(viewer).has_feature("live_monitoring"):
+        await _send_error(
+            websocket,
+            session_id,
+            "Live monitoring requires the pro plan",
+            WsErrorCode.PLAN_REQUIRED,
+        )
+        await websocket.close(code=4402)
         return
 
     info = live_registry.get_session(session_id)

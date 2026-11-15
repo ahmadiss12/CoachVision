@@ -1,19 +1,24 @@
 """Subscription plan endpoints."""
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
-from .deps import get_entitlements
+from .deps import get_current_user
+from .plan_access import entitlements_for, sponsored_exercise_ids
 from .schemas import EntitlementLimits, EntitlementsResponse
-from ..core.entitlements import Entitlements
+from ..db.models import User
+from ..db.session import get_db
 
 router = APIRouter()
 
 
 @router.get("/me/entitlements", response_model=EntitlementsResponse)
 def my_entitlements(
-    entitlements: Entitlements = Depends(get_entitlements),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EntitlementsResponse:
     """The caller's plan and what it allows, for clients to show or lock features."""
+    entitlements = entitlements_for(current_user)
     definition = entitlements.definition
     return EntitlementsResponse(
         plan=entitlements.plan,
@@ -26,4 +31,5 @@ def my_entitlements(
             max_clients=definition.max_clients,
             max_programs=definition.max_programs,
         ),
+        sponsored_exercise_ids=sponsored_exercise_ids(db, current_user),
     )

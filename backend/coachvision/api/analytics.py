@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .deps import get_current_user
+from .deps import get_current_user, require_feature
 from .schemas import AnalyticsOverviewResponse
 from ..db.models import Session as WorkoutSession, User
 from ..db.session import get_db
 
-router = APIRouter(prefix="/analytics")
+router = APIRouter(prefix="/analytics", dependencies=[Depends(require_feature("analytics"))])
 
 
 def _overview(db: Session, user_id, exercise_id: str | None = None) -> AnalyticsOverviewResponse:

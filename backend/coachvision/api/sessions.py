@@ -8,11 +8,30 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from .deps import get_current_user
+from .plan_access import (
+    entitlements_for,
+    exercise_access,
+    history_cutoff,
+    history_locked_message,
+    is_before_cutoff,
+    plan_required,
+    require_exercise_access,
+    trim_feedback,
+)
 from .schemas import CreateSessionRequest, EndSessionRequest, SessionFeedbackResponse, SessionResponse
 from ..db.models import Exercise, ProgramAssignment, Session, SessionFeedback, User
 from ..db.session import get_db
 
 router = APIRouter(prefix="/sessions")
+
+
+def _require_within_history(session: Session, user: User) -> None:
+    """Completed sessions older than the plan's history window are locked, not gone."""
+    entitlements = entitlements_for(user)
+    if session.status == "completed" and is_before_cutoff(
+        session.ended_at, history_cutoff(entitlements)
+    ):
+        raise plan_required(history_locked_message(entitlements))
 
 
 @router.post("", response_model=SessionResponse)
@@ -24,6 +43,7 @@ def create_session(
     exercise = db.get(Exercise, payload.exercise_id)
     if not exercise:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exercise not found")
+    access = require_exercise_access(db, current_user, exercise.id)
 
     # Link the workout to the client's plan when it was started from Today's
     # plan; a stale/foreign assignment id is ignored rather than blocking the
@@ -46,7 +66,7 @@ def create_session(
         status="planned",
         target_sets=payload.target_sets,
         target_reps=payload.target_reps,
-        external_load_kg=payload.external_load_kg,
+        external_load_kg=payload.external_load_kg if access.weighted else None,
         body_weight_kg=payload.body_weight_kg or current_user.weight_kg,
     )
     db.add(session)
@@ -60,10 +80,14 @@ def list_sessions(
     db: DbSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[SessionResponse]:
+    query = select(Session).where(
+        Session.user_id == current_user.id, Session.status == "completed"
+    )
+    cutoff = history_cutoff(entitlements_for(current_user))
+    if cutoff is not None:
+        query = query.where(Session.ended_at >= cutoff)
     rows = db.scalars(
-        select(Session)
-        .where(Session.user_id == current_user.id, Session.status == "completed")
-        .order_by(Session.ended_at.desc(), Session.created_at.desc())
+        query.order_by(Session.ended_at.desc(), Session.created_at.desc())
     ).all()
     return [SessionResponse.model_validate(row) for row in rows]
 
@@ -77,6 +101,7 @@ def get_session(
     session = db.get(Session, session_id)
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    _require_within_history(session, current_user)
     return SessionResponse.model_validate(session)
 
 
@@ -89,6 +114,7 @@ def get_session_feedback(
     session = db.get(Session, session_id)
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    _require_within_history(session, current_user)
     row = db.scalars(
         select(SessionFeedback).where(
             SessionFeedback.session_id == session_id,
@@ -100,7 +126,10 @@ def get_session_feedback(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session feedback not found",
         )
-    return SessionFeedbackResponse.model_validate(row)
+    feedback = SessionFeedbackResponse.model_validate(row)
+    if not entitlements_for(current_user).has_feature("full_session_review"):
+        feedback = trim_feedback(feedback)
+    return feedback
 
 
 @router.post("/{session_id}/start", response_model=SessionResponse)
@@ -149,7 +178,11 @@ def end_session(
         session.total_reps = payload.total_reps
     if payload is not None and payload.avg_form_score is not None:
         session.avg_form_score = payload.avg_form_score
-    if payload is not None and payload.external_load_kg is not None:
+    if (
+        payload is not None
+        and payload.external_load_kg is not None
+        and exercise_access(db, current_user, session.exercise_id).weighted
+    ):
         session.external_load_kg = payload.external_load_kg
     if payload is not None and payload.body_weight_kg is not None:
         session.body_weight_kg = payload.body_weight_kg

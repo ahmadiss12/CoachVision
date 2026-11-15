@@ -27,9 +27,12 @@ PLUS_FEATURES: frozenset[str] = frozenset(
         "full_session_review",  # every issue and cue, not just the top one
         "full_form_breakdown",  # all squat fault probabilities
         "readiness_detail",  # readiness score, reasons, history
+        # The app derives the target from the readiness response, so it is the
+        # app that withholds it. Same for the body progress charts, which are
+        # drawn from the user's own body metrics.
         "next_session_target",
+        "body_progress",
         "analytics",
-        "body_progress",  # body-fat logging and progress charts
         "pdf_report",
     }
 )
@@ -136,3 +139,12 @@ def minimum_plan_for(feature: str) -> str | None:
         if feature in PLAN_DEFINITIONS[plan].features:
             return plan
     return None
+
+
+def minimum_plan_for_exercise(exercise_id: str) -> str:
+    """Lowest plan that may start a session for ``exercise_id``."""
+    for plan in PLANS:
+        allowed = PLAN_DEFINITIONS[plan].exercise_ids
+        if allowed is None or exercise_id in allowed:
+            return plan
+    return PLANS[-1]

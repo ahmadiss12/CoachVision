@@ -15,6 +15,15 @@ from sqlalchemy.orm import Session as DbSession
 
 from .deps import get_current_user, require_role
 from .reports import _exercise_name, _rep_stats, _to_float
+from .plan_access import (
+    entitlements_for,
+    has_client_capacity,
+    history_cutoff,
+    history_locked_message,
+    is_before_cutoff,
+    plan_required,
+    trim_feedback,
+)
 from .schemas import (
     DailyReportSessionResponse,
     InviteAcceptRequest,
@@ -22,6 +31,7 @@ from .schemas import (
     InviteCreateRequest,
     InviteResponse,
     LiveClientSessionResponse,
+    ReportRepStatsResponse,
     SessionFeedbackResponse,
     SessionResponse,
     TrainerClientResponse,
@@ -35,6 +45,10 @@ _HOLD_EXERCISE_IDS = frozenset({"plank", "wall_sit"})
 router = APIRouter()
 
 _now = lambda: datetime.now(timezone.utc)  # noqa: E731
+
+
+def _client_limit_message(limit: int | None) -> str:
+    return f"Your plan allows {limit} active clients. Upgrade to add more."
 
 
 def _get_active_link(db: DbSession, trainer_id: UUID, client_id: UUID) -> TrainerClient | None:
@@ -57,6 +71,9 @@ def create_invite(
     db: DbSession = Depends(get_db),
     trainer: User = Depends(require_role("trainer")),
 ) -> InviteResponse:
+    if not has_client_capacity(db, trainer):
+        raise plan_required(_client_limit_message(entitlements_for(trainer).definition.max_clients))
+
     invite = ClientInvite(
         trainer_id=trainer.id,
         token=secrets.token_urlsafe(16),
@@ -132,6 +149,14 @@ def accept_invite(
             TrainerClient.client_id == client.id,
         )
     )
+    trainer = db.get(User, invite.trainer_id)
+    is_new_client = link is None or link.status != "active"
+    if is_new_client and trainer is not None and not has_client_capacity(db, trainer):
+        # The invite stays pending, so it works once the trainer has room.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This trainer cannot take on more clients right now",
+        )
     if link is None:
         link = TrainerClient(trainer_id=invite.trainer_id, client_id=client.id, status="active")
         db.add(link)
@@ -144,7 +169,6 @@ def accept_invite(
     invite.accepted_at = _now()
     db.commit()
 
-    trainer = db.get(User, invite.trainer_id)
     return InviteAcceptResponse(
         trainer_id=invite.trainer_id,
         trainer_name=trainer.display_name if trainer else "",
@@ -157,7 +181,14 @@ def live_client_sessions(
     db: DbSession = Depends(get_db),
     trainer: User = Depends(require_role("trainer")),
 ) -> list[LiveClientSessionResponse]:
-    """Which of my linked clients are in a live workout right now."""
+    """Which of my linked clients are in a live workout right now.
+
+    Empty for plans without live monitoring, so dashboards that poll this
+    simply show no live badge.
+    """
+    if not entitlements_for(trainer).has_feature("live_monitoring"):
+        return []
+
     rows = db.execute(
         select(TrainerClient, User)
         .join(User, User.id == TrainerClient.client_id)
@@ -217,10 +248,13 @@ def client_sessions(
 ) -> list[SessionResponse]:
     if _get_active_link(db, trainer.id, client_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+    query = select(Session).where(Session.user_id == client_id, Session.status == "completed")
+    # What a trainer sees follows the trainer's plan, not the client's.
+    cutoff = history_cutoff(entitlements_for(trainer))
+    if cutoff is not None:
+        query = query.where(Session.ended_at >= cutoff)
     rows = db.scalars(
-        select(Session)
-        .where(Session.user_id == client_id, Session.status == "completed")
-        .order_by(Session.ended_at.desc(), Session.created_at.desc())
+        query.order_by(Session.ended_at.desc(), Session.created_at.desc())
     ).all()
     return [SessionResponse.model_validate(row) for row in rows]
 
@@ -248,6 +282,12 @@ def client_session_detail(
     if not session or session.user_id != client_id or session.status != "completed":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    # What a trainer sees follows the trainer's plan, not the client's.
+    entitlements = entitlements_for(trainer)
+    if is_before_cutoff(session.ended_at, history_cutoff(entitlements)):
+        raise plan_required(history_locked_message(entitlements))
+    full_detail = entitlements.has_feature("full_client_session_detail")
+
     exercise = db.get(Exercise, session.exercise_id)
     feedback = db.scalar(
         select(SessionFeedback).where(SessionFeedback.session_id == session.id)
@@ -255,6 +295,14 @@ def client_session_detail(
     rep_rows = db.scalars(
         select(RepEvent).where(RepEvent.session_id == session.id).order_by(RepEvent.rep_number)
     ).all()
+
+    feedback_response = SessionFeedbackResponse.model_validate(feedback) if feedback else None
+    rep_stats = _rep_stats(rep_rows)
+    if not full_detail:
+        # Summary view: the short review and the rep count, no per-rep quality.
+        if feedback_response is not None:
+            feedback_response = trim_feedback(feedback_response)
+        rep_stats = ReportRepStatsResponse(rep_count=len(rep_rows))
 
     external_load = _to_float(session.external_load_kg)
     uses_external_load = bool(external_load and external_load > 0)
@@ -280,8 +328,8 @@ def client_session_detail(
         body_weight_kg=_to_float(session.body_weight_kg),
         uses_external_load=uses_external_load,
         estimated_volume_load_kg=estimated_volume_load,
-        feedback=SessionFeedbackResponse.model_validate(feedback) if feedback else None,
-        rep_stats=_rep_stats(rep_rows),
+        feedback=feedback_response,
+        rep_stats=rep_stats,
     )
 
 

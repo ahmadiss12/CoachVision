@@ -105,6 +105,9 @@ class EntitlementsResponse(BaseModel):
     early_access: bool = Field(alias="earlyAccess")
     features: list[str]
     limits: EntitlementLimits
+    # Exercises outside limits.exerciseIds that a trainer's plan unlocks for
+    # this user through an assigned program.
+    sponsored_exercise_ids: list[str] = Field(default_factory=list, alias="sponsoredExerciseIds")
 
 
 class AdminStatsResponse(BaseModel):
@@ -405,6 +408,9 @@ class FatiguePredictResponse(BaseModel):
     prediction_id: UUID | None = Field(default=None, alias="predictionId")
     explainability: list[ExplainabilityFactorResponse] = Field(default_factory=list)
     feature_snapshot: dict = Field(default_factory=dict, alias="featureSnapshot")
+    # True when the caller's plan only includes the fatigue level, so the
+    # recommendation, factors and explanation above were left empty.
+    detail_locked: bool = Field(default=False, alias="detailLocked")
 
 
 class AnalyticsOverviewResponse(BaseModel):
@@ -449,6 +455,9 @@ class SessionFeedbackResponse(BaseModel):
     version: str
     generated_at: datetime = Field(alias="generatedAt")
     updated_at: datetime = Field(alias="updatedAt")
+    # False when the caller's plan only includes the short review: the lists
+    # above then hold the top issue and one action item, not all of them.
+    full_review: bool = Field(default=True, alias="fullReview")
 
 
 class ReportUserResponse(BaseModel):

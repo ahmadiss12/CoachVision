@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession, selectinload
 
 from .deps import get_current_user, require_role
+from .plan_access import entitlements_for, exercise_locked_message, plan_required
 from .schemas import (
     AssignmentResponse,
     AssignProgramRequest,
@@ -73,6 +74,17 @@ def create_program(
     db: DbSession = Depends(get_db),
     trainer: User = Depends(require_role("trainer")),
 ) -> ProgramResponse:
+    entitlements = entitlements_for(trainer)
+    max_programs = entitlements.definition.max_programs
+    if max_programs is not None:
+        owned = db.scalar(
+            select(func.count()).select_from(Program).where(Program.trainer_id == trainer.id)
+        )
+        if int(owned or 0) >= max_programs:
+            raise plan_required(
+                f"Your plan allows {max_programs} program(s). Upgrade to create more."
+            )
+
     cycle_length = payload.weeks * 7
     seen_days: set[int] = set()
     for day in payload.days:
@@ -96,6 +108,12 @@ def create_program(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Unknown exercise: {item.exercise_id}",
                 )
+            # A program can only prescribe what the trainer's own plan covers,
+            # because that plan is what unlocks the exercise for the client.
+            if not entitlements.can_use_exercise(item.exercise_id):
+                raise plan_required(exercise_locked_message(item.exercise_id))
+
+    weighted = entitlements.has_feature("weighted_training")
 
     program = Program(
         trainer_id=trainer.id,
@@ -113,7 +131,7 @@ def create_program(
                     target_sets=item.target_sets,
                     target_reps=item.target_reps,
                     rest_seconds=item.rest_seconds,
-                    external_load_kg=item.external_load_kg,
+                    external_load_kg=item.external_load_kg if weighted else None,
                     notes=item.notes,
                 )
             )

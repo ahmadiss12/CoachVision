@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .deps import get_current_user
+from .deps import get_current_user, require_feature
+from .plan_access import entitlements_for
 from .schemas import (
     ExplainabilityFactorResponse,
     FatiguePredictRequest,
@@ -77,6 +78,20 @@ def predict_fatigue(
     db.commit()
     db.refresh(record)
 
+    if not entitlements_for(current_user).has_feature("readiness_detail"):
+        # The full prediction is stored above, so it shows up in the history
+        # if the user upgrades. The response carries the fatigue level only.
+        return FatiguePredictResponse(
+            exerciseId=record.exercise_id,
+            readinessScore=record.readiness_score,
+            fatigueLevel=record.fatigue_level,
+            recommendation="",
+            factors=[],
+            generatedAt=record.generated_at or datetime.now(timezone.utc),
+            predictionId=record.id,
+            detailLocked=True,
+        )
+
     return FatiguePredictResponse(
         exerciseId=record.exercise_id,
         readinessScore=record.readiness_score,
@@ -99,6 +114,7 @@ def fatigue_history(
     limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _entitled: object = Depends(require_feature("readiness_detail")),
 ) -> list[FatiguePredictResponse]:
     rows = db.scalars(
         select(FatiguePrediction)

@@ -25,6 +25,21 @@ because there the detection only exists server-side.
 - `ended` - includes raw dispatcher `summary`; the richer mistake review is persisted as session feedback and returned by `GET /v1/sessions/{sessionId}/feedback`
 - `error` - `{ schemaVersion, type, sessionId?, message, code }`
 
+### Plan limits
+
+These apply only once early access is switched off (`EARLY_ACCESS=false`).
+
+- `start` for an exercise the user's plan does not include is answered with an
+  `error` whose `code` is `PLAN_REQUIRED`. No session is created. An exercise
+  from a program assigned by a trainer is allowed when the trainer's plan
+  includes it.
+- `externalLoadKg` on `start` is ignored for plans without weighted training.
+- `formProbabilities` on `metrics` is `null` for plans without the full form
+  breakdown. `formName` still names the top fault.
+- `WS /v1/ws/observe/{sessionId}` needs the trainer's plan to include live
+  monitoring. Otherwise it sends `PLAN_REQUIRED` and closes with code `4402`.
+  Observers always receive `formProbabilities`.
+
 ### Client messages
 
 - `start` - exerciseName, difficulty, optional targetSets/targetReps, optional sessionId (REST-linked), optional `includePose` (default `false`; echo landmarks back on `metrics`)
