@@ -32,6 +32,12 @@ class User(Base):
         default="client",
         nullable=False,
     )
+    subscription_plan: Mapped[str] = mapped_column(
+        Enum("free", "plus", "pro", name="subscription_plan"),
+        default="free",
+        server_default="free",
+        nullable=False,
+    )
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
     date_of_birth: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     height_cm: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)

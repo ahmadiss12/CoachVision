@@ -74,11 +74,37 @@ class AdminUserResponse(BaseModel):
     email: str
     display_name: str = Field(alias="displayName")
     role: str
+    subscription_plan: str = Field(alias="subscriptionPlan")
     created_at: datetime = Field(alias="createdAt")
 
 
 class UpdateRoleRequest(BaseModel):
     role: str = Field(pattern="^(client|trainer|admin)$")
+
+
+class UpdatePlanRequest(BaseModel):
+    plan: str = Field(pattern="^(free|plus|pro)$")
+
+
+class EntitlementLimits(BaseModel):
+    """Plan limits. ``None`` means unlimited."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    exercise_ids: list[str] | None = Field(alias="exerciseIds")
+    history_days: int | None = Field(alias="historyDays")
+    max_clients: int | None = Field(alias="maxClients")
+    max_programs: int | None = Field(alias="maxPrograms")
+
+
+class EntitlementsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    plan: str
+    effective_plan: str = Field(alias="effectivePlan")
+    early_access: bool = Field(alias="earlyAccess")
+    features: list[str]
+    limits: EntitlementLimits
 
 
 class AdminStatsResponse(BaseModel):

@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from ..core.entitlements import Entitlements, minimum_plan_for, resolve_entitlements
 from ..core.security import decode_token
 from ..db.models import User
 from ..db.session import get_db
@@ -48,3 +49,27 @@ def require_role(*roles: str):
 
     return dependency
 
+
+
+def get_entitlements(current_user: User = Depends(get_current_user)) -> Entitlements:
+    """What the caller's subscription plan allows right now."""
+    return resolve_entitlements(current_user.subscription_plan, current_user.role)
+
+
+def require_feature(feature: str):
+    """Dependency factory: only allow callers whose plan includes ``feature``.
+
+    Responds 402 so clients can tell "upgrade needed" apart from the 403 that
+    ``require_role`` returns.
+    """
+
+    def dependency(entitlements: Entitlements = Depends(get_entitlements)) -> Entitlements:
+        if not entitlements.has_feature(feature):
+            needed = minimum_plan_for(feature) or "a higher"
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"This feature requires the {needed} plan",
+            )
+        return entitlements
+
+    return dependency

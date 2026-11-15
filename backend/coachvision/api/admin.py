@@ -1,4 +1,4 @@
-"""Admin endpoints: user listing, role management, stats, and user removal."""
+"""Admin endpoints: user listing, role and plan management, stats, and user removal."""
 
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from .deps import require_role
-from .schemas import AdminStatsResponse, AdminUserResponse, UpdateRoleRequest
+from .schemas import AdminStatsResponse, AdminUserResponse, UpdatePlanRequest, UpdateRoleRequest
 from ..db.models import ClientInvite, Session, TrainerClient, User
 from ..db.session import get_db
 
@@ -57,6 +57,25 @@ def change_role(
             link.status = "ended"
             link.ended_at = datetime.now(timezone.utc)
 
+    db.commit()
+    db.refresh(user)
+    return AdminUserResponse.model_validate(user)
+
+
+@router.patch("/users/{user_id}/plan", response_model=AdminUserResponse)
+def change_plan(
+    user_id: UUID,
+    payload: UpdatePlanRequest,
+    db: DbSession = Depends(get_db),
+    admin: User = Depends(require_role("admin")),
+) -> AdminUserResponse:
+    """Set a user's subscription plan by hand (testing, support, gifted plans)."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    user.subscription_plan = payload.plan
+    user.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(user)
     return AdminUserResponse.model_validate(user)
