@@ -20,9 +20,8 @@ class Settings(BaseSettings):
     # when BOTH values are explicitly provided via environment variables.
     admin_seed_email: str = "admin@coachvision.test"
     admin_seed_password: str = "Admin1234"
-    # While on, every account is treated as being on the top plan, so plan
-    # limits exist in code but lock nothing. Turn off (EARLY_ACCESS=false) when
-    # paid plans launch.
+    # While on, no account is locked or limited, so plan limits exist in code
+    # but change nothing. Turn off (EARLY_ACCESS=false) when paid plans launch.
     early_access: bool = True
 
     @model_validator(mode="after")

@@ -77,14 +77,25 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
     ),
 }
 
+# Applied during early access and to admins: every feature and no limits, which
+# is exactly how the app behaved before plans existed (trainers had no client
+# or program cap). Early access must not introduce a limit of its own.
+UNRESTRICTED = PlanDefinition(
+    features=PRO_FEATURES,
+    exercise_ids=None,
+    history_days=None,
+    max_clients=None,
+    max_programs=None,
+)
+
 
 @dataclass(frozen=True)
 class Entitlements:
     """What one account may do right now.
 
     ``plan`` is the plan stored on the account. ``effective_plan`` is the plan
-    whose features and limits apply, which is higher than ``plan`` during
-    early access and for admins.
+    the account is treated as, which is the top plan during early access and
+    for admins. In those two cases ``definition`` also carries no limits.
     """
 
     plan: str
@@ -103,17 +114,19 @@ class Entitlements:
 def resolve_entitlements(plan: str, role: str = "client") -> Entitlements:
     """Return the entitlements for an account on ``plan`` with ``role``.
 
-    While ``settings.early_access`` is on, every account gets the top plan so
-    nothing is locked before paid plans launch. Admins always get the top plan.
+    While ``settings.early_access`` is on, nothing is locked or limited for
+    anyone, so paid plans can be built before they launch. Admins are never
+    locked or limited.
     """
     stored = plan if plan in PLAN_DEFINITIONS else "free"
     early_access = settings.early_access
-    effective = PLANS[-1] if early_access or role == "admin" else stored
+    unrestricted = early_access or role == "admin"
+    effective = PLANS[-1] if unrestricted else stored
     return Entitlements(
         plan=stored,
         effective_plan=effective,
         early_access=early_access,
-        definition=PLAN_DEFINITIONS[effective],
+        definition=UNRESTRICTED if unrestricted else PLAN_DEFINITIONS[effective],
     )
 
 

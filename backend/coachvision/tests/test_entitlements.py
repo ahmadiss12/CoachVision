@@ -15,6 +15,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from coachvision.api.deps import require_feature
+from coachvision.api.schemas import UpdatePlanRequest
 from coachvision.core.config import settings
 from coachvision.core.entitlements import (
     FREE_EXERCISE_IDS,
@@ -110,18 +111,36 @@ class PlanRulesTest(unittest.TestCase):
         self.assertFalse(plus.has_feature("live_monitoring"))
         self.assertEqual(plus.definition.max_clients, PLAN_DEFINITIONS["free"].max_clients)
 
-    def test_early_access_gives_everyone_the_top_plan(self) -> None:
-        with patch.object(settings, "early_access", True):
-            free = resolve_entitlements("free")
-        self.assertEqual(free.plan, "free")
-        self.assertEqual(free.effective_plan, "pro")
-        self.assertTrue(free.early_access)
-        self.assertTrue(free.has_feature("live_monitoring"))
+    def _assert_unrestricted(self, entitlements) -> None:
+        self.assertEqual(entitlements.effective_plan, "pro")
+        self.assertTrue(entitlements.has_feature("live_monitoring"))
+        self.assertTrue(entitlements.can_use_exercise("deadlift"))
+        for limit in ("exercise_ids", "history_days", "max_clients", "max_programs"):
+            self.assertIsNone(getattr(entitlements.definition, limit), limit)
 
-    def test_admin_always_gets_the_top_plan(self) -> None:
+    def test_early_access_locks_and_limits_nothing(self) -> None:
+        # Trainers had no client or program cap before plans existed, so early
+        # access must not hand them the pro caps either.
+        for plan in PLANS:
+            with patch.object(settings, "early_access", True):
+                entitlements = resolve_entitlements(plan, role="trainer")
+            self.assertEqual(entitlements.plan, plan)
+            self.assertTrue(entitlements.early_access)
+            self._assert_unrestricted(entitlements)
+
+    def test_admin_is_never_locked_or_limited(self) -> None:
         with patch.object(settings, "early_access", False):
             admin = resolve_entitlements("free", role="admin")
-        self.assertEqual(admin.effective_plan, "pro")
+        self.assertFalse(admin.early_access)
+        self._assert_unrestricted(admin)
+
+    def test_plan_names_agree_everywhere(self) -> None:
+        # The plan list lives in the rules, the database enum and the admin
+        # request schema. They must not drift apart.
+        self.assertEqual(tuple(PLAN_DEFINITIONS), PLANS)
+        self.assertEqual(tuple(User.__table__.c.subscription_plan.type.enums), PLANS)
+        for plan in PLANS:
+            self.assertEqual(UpdatePlanRequest(plan=plan).plan, plan)
 
     def test_unknown_stored_plan_falls_back_to_free(self) -> None:
         with patch.object(settings, "early_access", False):
@@ -174,8 +193,10 @@ class EntitlementsApiTest(unittest.TestCase):
         self.assertEqual(body["effectivePlan"], "pro")
         self.assertTrue(body["earlyAccess"])
         self.assertIn("analytics", body["features"])
-        self.assertIsNone(body["limits"]["exerciseIds"])
-        self.assertIsNone(body["limits"]["historyDays"])
+        self.assertEqual(
+            body["limits"],
+            {"exerciseIds": None, "historyDays": None, "maxClients": None, "maxPrograms": None},
+        )
 
     def test_free_account_sees_free_limits_after_early_access(self) -> None:
         _, headers = _register()
@@ -193,6 +214,23 @@ class EntitlementsApiTest(unittest.TestCase):
                 "maxPrograms": 1,
             },
         )
+
+    def test_user_cannot_choose_their_own_plan(self) -> None:
+        # A plan must only change through the admin route (and later, billing).
+        smuggled = {"subscription_plan": "pro", "subscriptionPlan": "pro", "plan": "pro"}
+        email = f"smuggle-{uuid4().hex[:8]}@example.com"
+        resp = client.post(
+            "/v1/auth/register",
+            json={"email": email, "password": "secret123", "display_name": "x", **smuggled},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(_user(email).subscription_plan, "free")
+
+        headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
+        resp = client.patch("/v1/users/me", json={"display_name": "y", **smuggled}, headers=headers)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(_user(email).display_name, "y")
+        self.assertEqual(_user(email).subscription_plan, "free")
 
     def test_admin_sets_plan_and_entitlements_follow(self) -> None:
         admin_email, admin_headers = _register()

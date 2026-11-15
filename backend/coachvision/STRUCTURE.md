@@ -32,6 +32,8 @@ The mobile app currently sends client-side pose landmarks, so the backend can ru
 - `api/sessions.py`: create, start, end, list sessions.
 - `api/fatigue.py`: fatigue/readiness prediction endpoints.
 - `api/ws_live.py`: realtime session socket.
+- `api/billing.py`: the caller's subscription plan and what it allows.
+- `core/entitlements.py`: the single definition of each plan's features and limits.
 - `ai/counters/dispatcher.py`: routes pose landmarks to the correct exercise counter.
 - `ai/squat_form_classifier.py`: extracts the 12 training features and runs the deployed XGBoost squat-form model with per-session probability smoothing.
 - `services/ws_persistence.py`: saves live workout results.
