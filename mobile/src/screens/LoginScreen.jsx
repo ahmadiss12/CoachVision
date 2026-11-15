@@ -34,7 +34,10 @@ export function LoginScreen() {
         }
         const user = await login({ email: email.trim(), password });
         if (user) {
-            router.replace(hasSavedBodyProfile(user) ? '/' : '/(app)/onboarding-profile');
+            // Only clients have a body profile to fill in; trainers and admins
+            // go straight to their tabs, as they do after registering.
+            const needsBodyProfile = user.role === 'client' && !hasSavedBodyProfile(user);
+            router.replace(needsBodyProfile ? '/(app)/onboarding-profile' : '/');
         }
     };
     return (<SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
