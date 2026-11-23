@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 
 const ROLE_TONES = { client: 'brand', trainer: 'success', admin: 'warning' };
+const PLANS = ['free', 'plus', 'pro'];
 
 export default function AdminPage() {
   const { user: me } = useAuth();
@@ -47,6 +48,20 @@ export default function AdminPage() {
       setError(err?.message || 'Role change failed.');
     }
   };
+
+  // Sets a plan by hand, for testing and gifted plans until billing exists.
+  const changePlan = async (target, plan) => {
+    setError(null);
+    try {
+      const updated = await api(`/admin/users/${target.id}/plan`, { method: 'PATCH', body: { plan } });
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (err) {
+      setError(err?.message || 'Plan change failed.');
+    }
+  };
+
+  // Older servers do not send a plan; the column is hidden rather than wrong.
+  const showsPlans = users.some((u) => u.subscriptionPlan !== undefined);
 
   const removeUser = async (target) => {
     if (
@@ -123,6 +138,7 @@ export default function AdminPage() {
               <th>Email</th>
               <th>Joined</th>
               <th>Role</th>
+              {showsPlans ? <th>Plan</th> : null}
               <th />
             </tr>
           </thead>
@@ -151,6 +167,22 @@ export default function AdminPage() {
                     </select>
                   )}
                 </td>
+                {showsPlans ? (
+                  <td>
+                    <select
+                      className="select"
+                      style={{ width: 100, padding: '5px 8px', fontSize: 13 }}
+                      value={u.subscriptionPlan ?? 'free'}
+                      onChange={(e) => changePlan(u, e.target.value)}
+                    >
+                      {PLANS.map((plan) => (
+                        <option key={plan} value={plan}>
+                          {plan}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                ) : null}
                 <td style={{ textAlign: 'right' }}>
                   {me?.id !== u.id ? (
                     <button className="btn danger small" onClick={() => removeUser(u)}>

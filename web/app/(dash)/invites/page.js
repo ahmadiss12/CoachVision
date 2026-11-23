@@ -1,12 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { PlanNotice } from '@/components/PlanNotice';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { isPlanRequired, planForHigherLimit } from '@/lib/plans';
 
 const STATUS_TONES = { pending: 'warning', accepted: 'success', revoked: 'danger', expired: 'dim' };
 
 export default function InvitesPage() {
+  const { entitlements } = useAuth();
+  const maxClients = entitlements.limits.maxClients;
   const [invites, setInvites] = useState([]);
+  const [clientCount, setClientCount] = useState(null);
+  const [planError, setPlanError] = useState(null);
   const [error, setError] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
@@ -15,7 +22,12 @@ export default function InvitesPage() {
     api('/trainer/invites')
       .then(setInvites)
       .catch((err) => setError(err?.message || 'Failed to load invites.'));
+    api('/trainer/clients')
+      .then((rows) => setClientCount(rows.length))
+      .catch(() => setClientCount(null));
   }, []);
+
+  const atClientLimit = maxClients != null && clientCount != null && clientCount >= maxClients;
 
   useEffect(() => {
     refresh();
@@ -24,10 +36,16 @@ export default function InvitesPage() {
   const create = async () => {
     setIsCreating(true);
     setError(null);
+    setPlanError(null);
     try {
       await api('/trainer/invites', { method: 'POST', body: {} });
       refresh();
     } catch (err) {
+      if (isPlanRequired(err)) {
+        setPlanError(err.message);
+        refresh();
+        return;
+      }
       setError(err?.message || 'Could not create an invite.');
     } finally {
       setIsCreating(false);
@@ -61,11 +79,16 @@ export default function InvitesPage() {
           <h1 className="page-title">Client invites</h1>
           <p className="page-subtitle">Codes are single-use and expire after 7 days.</p>
         </div>
-        <button className="btn" onClick={create} disabled={isCreating}>
+        <button className="btn" onClick={create} disabled={isCreating || atClientLimit}>
           {isCreating ? 'Creating…' : '+ New invite code'}
         </button>
       </div>
       {error ? <div className="error-box">{error}</div> : null}
+      {atClientLimit || planError ? (
+        <PlanNotice plan={planForHigherLimit(entitlements, 'maxClients')} title="Client limit reached">
+          {planError || `Your plan includes ${maxClients} active clients. Your current clients stay.`}
+        </PlanNotice>
+      ) : null}
 
       <div className="card" style={{ padding: 0 }}>
         {invites.length === 0 ? (

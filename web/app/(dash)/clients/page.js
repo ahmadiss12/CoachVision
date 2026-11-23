@@ -2,10 +2,17 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { PlanNotice, PlanTag } from '@/components/PlanNotice';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { hasFeature, planForFeature, planForHigherLimit } from '@/lib/plans';
 
 export default function ClientsPage() {
   const router = useRouter();
+  const { entitlements } = useAuth();
+  const canWatchLive = hasFeature(entitlements, 'live_monitoring');
+  const livePlan = planForFeature(entitlements, 'live_monitoring');
+  const maxClients = entitlements.limits.maxClients;
   const [clients, setClients] = useState([]);
   const [liveSessions, setLiveSessions] = useState([]);
   const [error, setError] = useState(null);
@@ -18,8 +25,13 @@ export default function ClientsPage() {
       .finally(() => setIsLoading(false));
   }, []);
 
-  // Poll for live workouts so the LIVE badge appears within seconds.
+  // Poll for live workouts so the LIVE badge appears within seconds. Plans
+  // without live monitoring always get an empty list, so they skip the poll.
   useEffect(() => {
+    if (!canWatchLive) {
+      setLiveSessions([]);
+      return undefined;
+    }
     let cancelled = false;
     const poll = () =>
       api('/trainer/clients/live')
@@ -33,7 +45,7 @@ export default function ClientsPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [canWatchLive]);
 
   const liveByClient = new Map(liveSessions.map((row) => [row.clientId, row]));
 
@@ -50,12 +62,27 @@ export default function ClientsPage() {
 
   return (
     <>
-      <h1 className="page-title">My clients</h1>
+      <div className="row between">
+        <h1 className="page-title">My clients</h1>
+        {livePlan && canWatchLive && entitlements.earlyAccess ? (
+          <PlanTag plan={livePlan} note="live view free in early access" />
+        ) : null}
+      </div>
       <p className="page-subtitle">
-        {clients.length} active coaching {clients.length === 1 ? 'relationship' : 'relationships'}
+        {maxClients == null
+          ? `${clients.length} active coaching ${clients.length === 1 ? 'relationship' : 'relationships'}`
+          : `${clients.length} of ${maxClients} active clients`}
         {liveSessions.length > 0 ? ` · ${liveSessions.length} training right now` : ''}.
       </p>
       {error ? <div className="error-box">{error}</div> : null}
+      {maxClients != null && !isLoading && clients.length >= maxClients ? (
+        <PlanNotice plan={planForHigherLimit(entitlements, 'maxClients')} title="Client limit reached">
+          Your current clients stay. Upgrade to coach more.
+        </PlanNotice>
+      ) : null}
+      {!canWatchLive && clients.length > 0 ? (
+        <PlanNotice plan={livePlan}>Watch your clients&apos; workouts live, rep by rep.</PlanNotice>
+      ) : null}
       <div className="card" style={{ padding: 0 }}>
         {isLoading ? (
           <p className="empty">Loading…</p>

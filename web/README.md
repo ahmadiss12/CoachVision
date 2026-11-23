@@ -27,3 +27,13 @@ Sign in with a trainer or admin account (dev admin: `admin@coachvision.test` / `
 - Hand-rolled dark design system in `app/globals.css` (matches the mobile theme)
 - Dependency-free SVG charts (`components/Sparkline.js`)
 - JWT auth against `/v1/auth/*` with automatic refresh (`lib/api.js`)
+
+## Plans
+
+After sign-in the dashboard reads `GET /v1/me/entitlements` (`lib/auth-context.js`) and
+shows the trainer's plan: client and program counts against their limits, locked
+exercises in the program builder, and a notice where a feature needs a higher plan.
+The server enforces every limit; `lib/plans.js` only decides what is shown. If the
+server has no plans (an older backend), nothing is locked. The Plans page lists
+what each plan includes, read from the same response. Admins can set a user's plan
+by hand on the Admin page.

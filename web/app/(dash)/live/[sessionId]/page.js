@@ -2,7 +2,10 @@
 
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { PlanNotice } from '@/components/PlanNotice';
 import { buildWsUrl } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { planForFeature } from '@/lib/plans';
 
 const FORM_TONES = {
   Correct: 'var(--success)',
@@ -18,10 +21,11 @@ export default function LiveSessionPage() {
   const { sessionId } = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { entitlements } = useAuth();
   const clientName = searchParams.get('client') || 'Client';
   const exerciseHint = searchParams.get('exercise') || '';
 
-  const [status, setStatus] = useState('connecting'); // connecting | live | ended | error
+  const [status, setStatus] = useState('connecting'); // connecting | live | ended | error | locked
   const [errorText, setErrorText] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [elapsed, setElapsed] = useState(0);
@@ -52,17 +56,18 @@ export default function LiveSessionPage() {
         setStatus('ended');
         socket.close();
       } else if (message.type === 'error') {
-        setStatus('error');
+        // PLAN_REQUIRED: the trainer's plan does not include live monitoring.
+        setStatus(message.code === 'PLAN_REQUIRED' ? 'locked' : 'error');
         setErrorText(message.message || 'Connection rejected.');
         socket.close();
       }
     };
     socket.onerror = () => {
-      setStatus((prev) => (prev === 'live' || prev === 'ended' ? prev : 'error'));
+      setStatus((prev) => (['live', 'ended', 'locked'].includes(prev) ? prev : 'error'));
       setErrorText((prev) => prev || 'Could not connect to the live session.');
     };
     socket.onclose = () => {
-      setStatus((prev) => (prev === 'ended' || prev === 'error' ? prev : 'ended'));
+      setStatus((prev) => (['ended', 'error', 'locked'].includes(prev) ? prev : 'ended'));
     };
 
     const keepAlive = setInterval(() => {
@@ -114,6 +119,12 @@ export default function LiveSessionPage() {
 
       {status === 'error' ? (
         <div className="error-box">{errorText}</div>
+      ) : null}
+
+      {status === 'locked' ? (
+        <PlanNotice plan={planForFeature(entitlements, 'live_monitoring')}>
+          Watch your clients&apos; workouts live, rep by rep. Their finished sessions still appear on the client page.
+        </PlanNotice>
       ) : null}
 
       {status === 'ended' ? (

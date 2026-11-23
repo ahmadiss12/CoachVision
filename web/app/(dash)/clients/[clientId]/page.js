@@ -2,7 +2,10 @@
 
 import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { PlanNotice } from '@/components/PlanNotice';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import { isPlanRequired, planForFeature, planForHigherLimit } from '@/lib/plans';
 import { Sparkline } from '@/components/Sparkline';
 
 function formatDuration(seconds) {
@@ -16,6 +19,9 @@ export default function ClientDetailPage() {
   const { clientId } = useParams();
   const searchParams = useSearchParams();
   const clientName = searchParams.get('name') || 'Client';
+  const { entitlements } = useAuth();
+  const historyDays = entitlements.limits.historyDays;
+  const fullDetailPlan = planForFeature(entitlements, 'full_client_session_detail');
 
   const [sessions, setSessions] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -55,7 +61,10 @@ export default function ClientDetailPage() {
     try {
       setDetail(await api(`/trainer/clients/${clientId}/sessions/${session.id}`));
     } catch (err) {
-      setDetail({ error: err?.message || 'Failed to load breakdown.' });
+      setDetail({
+        error: err?.message || 'Failed to load breakdown.',
+        planRequired: isPlanRequired(err),
+      });
     }
   };
 
@@ -71,6 +80,11 @@ export default function ClientDetailPage() {
       </h1>
       <p className="page-subtitle">Session history, movement quality, and plan compliance.</p>
       {error ? <div className="error-box">{error}</div> : null}
+      {historyDays != null ? (
+        <PlanNotice plan={planForHigherLimit(entitlements, 'historyDays')} title={`Showing the last ${historyDays} days`}>
+          Older sessions are kept and appear when you upgrade.
+        </PlanNotice>
+      ) : null}
 
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
         <div className="stat-card">
@@ -148,6 +162,7 @@ export default function ClientDetailPage() {
                   isOpen={detailFor === session.id}
                   detail={detailFor === session.id ? detail : null}
                   onToggle={() => openDetail(session)}
+                  fullDetailPlan={fullDetailPlan}
                 />
               ))}
             </tbody>
@@ -158,7 +173,7 @@ export default function ClientDetailPage() {
   );
 }
 
-function SessionRow({ session, isOpen, detail, onToggle }) {
+function SessionRow({ session, isOpen, detail, onToggle, fullDetailPlan }) {
   return (
     <>
       <tr className="clickable" onClick={onToggle}>
@@ -186,10 +201,14 @@ function SessionRow({ session, isOpen, detail, onToggle }) {
           <td colSpan={6} style={{ background: 'var(--surface-alt)' }}>
             {!detail ? (
               <span className="muted">Loading breakdown…</span>
+            ) : detail.planRequired ? (
+              <PlanNotice plan={null} title="Not included in your plan">
+                {detail.error}
+              </PlanNotice>
             ) : detail.error ? (
               <span style={{ color: 'var(--danger)' }}>{detail.error}</span>
             ) : (
-              <SessionDetail detail={detail} />
+              <SessionDetail detail={detail} fullDetailPlan={fullDetailPlan} />
             )}
           </td>
         </tr>
@@ -198,9 +217,13 @@ function SessionRow({ session, isOpen, detail, onToggle }) {
   );
 }
 
-function SessionDetail({ detail }) {
+function SessionDetail({ detail, fullDetailPlan }) {
   const feedback = detail.feedback;
   const repStats = detail.repStats;
+  // Summary view: the server sends the top issue and one action, and the rep
+  // count without per-rep quality.
+  const isSummary = feedback?.fullReview === false;
+  const hasRepQuality = repStats?.avgRangeOfMotion != null || repStats?.avgRepDurationMs != null;
   const targetTotal = (detail.targetSets || 1) * (detail.targetReps || 1);
   const compliance = targetTotal > 0 ? Math.round(((detail.totalReps || 0) / targetTotal) * 100) : null;
 
@@ -224,7 +247,7 @@ function SessionDetail({ detail }) {
             {detail.estimatedVolumeLoadKg != null ? ` · volume ${detail.estimatedVolumeLoadKg}kg` : ''}
           </span>
         ) : null}
-        {repStats?.repCount > 0 ? (
+        {repStats?.repCount > 0 && hasRepQuality ? (
           <span className="muted">
             ROM <b style={{ color: 'var(--text)' }}>{repStats.avgRangeOfMotion ?? '--'}°</b> · tempo{' '}
             <b style={{ color: 'var(--text)' }}>
@@ -276,6 +299,12 @@ function SessionDetail({ detail }) {
       ) : (
         <span className="muted">No form review was generated for this session.</span>
       )}
+
+      {isSummary ? (
+        <PlanNotice plan={fullDetailPlan} title="Summary view">
+          See every issue, all coaching actions and per-rep quality for each client session.
+        </PlanNotice>
+      ) : null}
     </div>
   );
 }

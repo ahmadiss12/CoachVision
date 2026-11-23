@@ -1,7 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { PlanNotice } from '@/components/PlanNotice';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
+import {
+  canUseExercise,
+  hasFeature,
+  isPlanRequired,
+  planForExercise,
+  planForHigherLimit,
+  planLabel,
+} from '@/lib/plans';
 
 const EXERCISE_CATALOG = [
   { id: 'squat', label: 'Squat', load: true },
@@ -19,7 +29,10 @@ const EXERCISE_CATALOG = [
 ];
 
 export default function ProgramsPage() {
+  const { entitlements } = useAuth();
+  const maxPrograms = entitlements.limits.maxPrograms;
   const [programs, setPrograms] = useState([]);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [clients, setClients] = useState([]);
   const [error, setError] = useState(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -27,7 +40,10 @@ export default function ProgramsPage() {
 
   const refresh = useCallback(() => {
     api('/trainer/programs')
-      .then(setPrograms)
+      .then((rows) => {
+        setPrograms(rows);
+        setIsLoaded(true);
+      })
       .catch((err) => setError(err?.message || 'Failed to load programs.'));
     api('/trainer/clients')
       .then(setClients)
@@ -37,6 +53,9 @@ export default function ProgramsPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Only once the list has loaded, so the button does not flash away.
+  const atProgramLimit = maxPrograms != null && isLoaded && programs.length >= maxPrograms;
 
   const remove = async (program) => {
     if (!window.confirm(`Delete "${program.name}"? Clients assigned to it will lose their plan.`)) return;
@@ -55,14 +74,27 @@ export default function ProgramsPage() {
           <h1 className="page-title">Programs</h1>
           <p className="page-subtitle">Build training plans and assign them to clients.</p>
         </div>
-        <button className="btn" onClick={() => setShowBuilder((v) => !v)}>
+        <button
+          className="btn"
+          onClick={() => setShowBuilder((v) => !v)}
+          disabled={atProgramLimit && !showBuilder}
+        >
           {showBuilder ? 'Close builder' : '+ New program'}
         </button>
       </div>
       {error ? <div className="error-box">{error}</div> : null}
+      {atProgramLimit && !showBuilder ? (
+        <PlanNotice
+          plan={planForHigherLimit(entitlements, 'maxPrograms')}
+          title={`Your plan includes ${maxPrograms} ${maxPrograms === 1 ? 'program' : 'programs'}`}
+        >
+          Your existing programs stay. Upgrade to build more.
+        </PlanNotice>
+      ) : null}
 
       {showBuilder ? (
         <ProgramBuilder
+          entitlements={entitlements}
           onSaved={() => {
             setShowBuilder(false);
             refresh();
@@ -176,7 +208,10 @@ function AssignPicker({ program, clients, onDone }) {
   );
 }
 
-function ProgramBuilder({ onSaved }) {
+function ProgramBuilder({ entitlements, onSaved }) {
+  // A program can only prescribe what the trainer's own plan covers.
+  const canPrescribeLoad = hasFeature(entitlements, 'weighted_training');
+  const [planError, setPlanError] = useState(null);
   const [name, setName] = useState('');
   const [weeks, setWeeks] = useState(1);
   const [days, setDays] = useState([{ dayIndex: 1, exercises: [] }]);
@@ -206,6 +241,7 @@ function ProgramBuilder({ onSaved }) {
 
   const save = async () => {
     setError(null);
+    setPlanError(null);
     if (!name.trim()) {
       setError('Give the program a name.');
       return;
@@ -229,13 +265,17 @@ function ProgramBuilder({ onSaved }) {
               targetSets: e.targetSets,
               targetReps: e.targetReps,
               restSeconds: e.restSeconds,
-              externalLoadKg: e.externalLoadKg > 0 ? e.externalLoadKg : null,
+              externalLoadKg: canPrescribeLoad && e.externalLoadKg > 0 ? e.externalLoadKg : null,
             })),
           })),
         },
       });
       onSaved();
     } catch (err) {
+      if (isPlanRequired(err)) {
+        setPlanError(err.message);
+        return;
+      }
       setError(err?.message || 'Save failed.');
     } finally {
       setIsSaving(false);
@@ -245,6 +285,7 @@ function ProgramBuilder({ onSaved }) {
   return (
     <div className="card" style={{ marginTop: 14, display: 'grid', gap: 14 }}>
       {error ? <div className="error-box" style={{ marginBottom: 0 }}>{error}</div> : null}
+      {planError ? <PlanNotice title="Not included in your plan">{planError}</PlanNotice> : null}
       <div className="grid cols-2">
         <div>
           <label className="field">Program name</label>
@@ -284,7 +325,7 @@ function ProgramBuilder({ onSaved }) {
                 <NumberField label="sets" value={exercise.targetSets} min={1} max={10} onChange={(v) => patchExercise(day.dayIndex, position, { targetSets: v })} />
                 <NumberField label={meta?.hold ? 'sec' : 'reps'} value={exercise.targetReps} min={1} max={200} onChange={(v) => patchExercise(day.dayIndex, position, { targetReps: v })} />
                 <NumberField label="rest s" value={exercise.restSeconds} min={0} max={300} onChange={(v) => patchExercise(day.dayIndex, position, { restSeconds: v })} />
-                {meta?.load ? (
+                {meta?.load && canPrescribeLoad ? (
                   <NumberField label="kg" value={exercise.externalLoadKg} min={0} max={200} onChange={(v) => patchExercise(day.dayIndex, position, { externalLoadKg: v })} />
                 ) : null}
                 <button
@@ -328,11 +369,14 @@ function ProgramBuilder({ onSaved }) {
             }}
           >
             <option value="">+ Add exercise…</option>
-            {EXERCISE_CATALOG.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
+            {EXERCISE_CATALOG.map((entry) => {
+              const isLocked = !canUseExercise(entitlements, entry.id);
+              return (
+                <option key={entry.id} value={entry.id} disabled={isLocked}>
+                  {isLocked ? `🔒 ${entry.label} (${planLabel(planForExercise(entitlements, entry.id))})` : entry.label}
+                </option>
+              );
+            })}
           </select>
         </div>
       ))}

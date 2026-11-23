@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { planLabel } from '@/lib/plans';
 
 const TRAINER_LINKS = [
   { href: '/clients', label: '👥 Clients' },
@@ -17,7 +18,7 @@ const ADMIN_LINKS = [{ href: '/admin', label: '🛡️ Admin' }];
 export default function DashLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isLoading, logout } = useAuth();
+  const { user, entitlements, isLoading, logout } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
@@ -55,8 +56,13 @@ export default function DashLayout({ children }) {
           <b>{user.display_name}</b>
           {user.email}
           <br />
-          <span className="badge brand" style={{ marginTop: 6 }}>
-            {user.role}
+          <span className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>
+            <span className="badge brand">{user.role}</span>
+            {user.role === 'trainer' && entitlements.isLoaded ? (
+              <Link href="/plans" className="badge dim" title="See what each plan includes">
+                {planLabel(entitlements.plan)} plan{entitlements.earlyAccess ? ' · early access' : ''}
+              </Link>
+            ) : null}
           </span>
         </div>
         <button

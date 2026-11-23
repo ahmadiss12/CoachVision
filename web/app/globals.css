@@ -522,3 +522,54 @@ label.field {
   color: var(--text-dim);
   font-size: 13px;
 }
+
+/* ---------- Plans ---------- */
+.plan-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 9px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.plan-notice-icon {
+  font-size: 16px;
+}
+
+.plan-notice-copy {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.plan-notice-link {
+  color: var(--brand);
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.badge.plan-tag {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.plan-tag-note {
+  text-transform: none;
+  font-weight: 700;
+}
+
+.plan-table td:not(:first-child),
+.plan-table th:not(:first-child) {
+  text-align: center;
+}
+
+.plan-table th.current {
+  color: var(--brand);
+}
